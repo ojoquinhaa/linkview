@@ -1,0 +1,22 @@
+{
+  "name": "@urlsimples/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./permissions": "./src/permissions.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@urlsimples/db": "workspace:*",
+    "@urlsimples/shared": "workspace:*",
+    "better-auth": "^1.2.7"
+  },
+  "devDependencies": {
+    "@urlsimples/config": "workspace:*",
+    "typescript": "^5.7.2"
+  }
+}
