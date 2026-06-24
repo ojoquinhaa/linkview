@@ -183,6 +183,8 @@ export default async function PlanosPage() {
             canceling={sub.cancelAtPeriodEnd}
             trialDays={TRIAL_DURATION_DAYS}
             pricing={pricing}
+            currentCycle={annual ? "yearly" : "monthly"}
+            nextChargeLabel={renewsAt ? fmtDate(renewsAt) : null}
           />
         </div>
       </div>

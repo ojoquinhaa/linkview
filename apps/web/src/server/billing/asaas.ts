@@ -103,6 +103,28 @@ export function createSubscription(input: {
   });
 }
 
+/**
+ * Update an existing subscription in place (Asaas uses POST on the resource
+ * for updates). Used to switch billing cycle / value without canceling, so the
+ * customer keeps the same subscription and the change applies from the next
+ * charge. `updatePendingPayments` also rewrites any not-yet-paid charge.
+ */
+export function updateSubscription(
+  subscriptionId: string,
+  input: {
+    /** New amount in BRL (e.g. 249), not cents. */
+    value: number;
+    cycle: "MONTHLY" | "YEARLY";
+    description: string;
+    updatePendingPayments?: boolean;
+  },
+): Promise<AsaasSubscription> {
+  return asaas<AsaasSubscription>(`/subscriptions/${subscriptionId}`, {
+    method: "POST",
+    json: { updatePendingPayments: true, ...input },
+  });
+}
+
 export async function getSubscriptionPayments(
   subscriptionId: string,
 ): Promise<AsaasPayment[]> {
