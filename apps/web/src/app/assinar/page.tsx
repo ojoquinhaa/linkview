@@ -7,7 +7,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BillingCycleChoice } from "@/components/billing/billing-cycle-choice";
 import { Wordmark } from "@/components/wordmark";
-import { getWorkspaceSubscription } from "@/server/billing/subscription";
+import {
+  getWorkspaceSubscription,
+  reconcilePendingSubscription,
+} from "@/server/billing/subscription";
 import { getTrialEligibility } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
@@ -33,7 +36,17 @@ export default async function AssinarPage({
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) redirect("/login");
 
-  const sub = await getWorkspaceSubscription(workspace.id);
+  let sub = await getWorkspaceSubscription(workspace.id);
+  // If a charge already cleared at Asaas but the webhook hasn't landed, activate
+  // now so the "Já paguei — verificar agora" reload lets the user straight in.
+  if (sub?.status === "pending") {
+    try {
+      await reconcilePendingSubscription(workspace.id);
+      sub = await getWorkspaceSubscription(workspace.id);
+    } catch (err) {
+      console.error("billing.reconcile_failed", err);
+    }
+  }
   if (sub && ACTIVE.has(sub.status)) redirect("/dashboard/links");
 
   const { status } = await searchParams;

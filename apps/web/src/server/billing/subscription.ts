@@ -1,14 +1,36 @@
 import "server-only";
 import type { Database } from "@linkview/db";
-import { billingCustomers, getDb, plans, subscriptions } from "@linkview/db";
+import {
+  billingCustomers,
+  getDb,
+  plans,
+  subscriptions,
+  trialRedemptions,
+  workspaces,
+} from "@linkview/db";
 import {
   type BillingCycle,
   getCyclePriceCents,
   getPlan,
   type PlanKey,
 } from "@linkview/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import * as asaas from "./asaas";
+
+/** Asaas payment statuses that mean the money cleared. */
+const PAID_STATUSES = new Set(["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"]);
+
+function addMonth(from: Date): Date {
+  const d = new Date(from);
+  d.setMonth(d.getMonth() + 1);
+  return d;
+}
+
+function addYear(from: Date): Date {
+  const d = new Date(from);
+  d.setFullYear(d.getFullYear() + 1);
+  return d;
+}
 
 function appUrl(): string {
   // trim() guards against trailing whitespace/newlines baked into the env var
@@ -175,6 +197,81 @@ export async function getWorkspaceSubscription(
     .where(eq(subscriptions.workspaceId, workspaceId))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Poll Asaas for a pending subscription's payments and activate locally if one
+ * already cleared. Mirrors the webhook's activation so the "Já paguei" path
+ * unblocks the user even when the webhook is late, blocked, or not configured
+ * (common in sandbox). Best-effort and idempotent: a no-op unless there's a
+ * pending subscription with a paid charge. Returns true when active afterward.
+ */
+export async function reconcilePendingSubscription(
+  workspaceId: string,
+): Promise<boolean> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: subscriptions.id,
+      status: subscriptions.status,
+      providerSubscriptionId: subscriptions.providerSubscriptionId,
+      planId: subscriptions.planId,
+      billingCycle: subscriptions.billingCycle,
+    })
+    .from(subscriptions)
+    .where(eq(subscriptions.workspaceId, workspaceId))
+    .limit(1);
+
+  if (!row) return false;
+  if (row.status === "active") return true;
+  if (row.status !== "pending" || !row.providerSubscriptionId) return false;
+
+  const payments = await asaas.getSubscriptionPayments(
+    row.providerSubscriptionId,
+  );
+  const paid = payments.find((p) => PAID_STATUSES.has(p.status));
+  if (!paid) return false;
+
+  const paidIso = paid.confirmedDate ?? paid.paymentDate ?? null;
+  const paidAt = paidIso ? new Date(paidIso) : new Date();
+  const currentPeriodEnd =
+    row.billingCycle === "yearly" ? addYear(paidAt) : addMonth(paidAt);
+
+  await db
+    .update(subscriptions)
+    .set({
+      status: "active",
+      currentPeriodStart: paidAt,
+      currentPeriodEnd,
+      cancelAtPeriodEnd: false,
+      canceledAt: null,
+    })
+    .where(eq(subscriptions.id, row.id));
+
+  const [plan] = await db
+    .select({ key: plans.key })
+    .from(plans)
+    .where(eq(plans.id, row.planId))
+    .limit(1);
+  if (plan) {
+    await db
+      .update(workspaces)
+      .set({ planKey: plan.key })
+      .where(eq(workspaces.id, workspaceId));
+  }
+
+  // A converting trial is exempt from the retention purge.
+  await db
+    .update(trialRedemptions)
+    .set({ convertedAt: paidAt })
+    .where(
+      and(
+        eq(trialRedemptions.workspaceId, workspaceId),
+        isNull(trialRedemptions.convertedAt),
+      ),
+    );
+
+  return true;
 }
 
 /**
