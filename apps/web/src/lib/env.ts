@@ -11,7 +11,7 @@ export function authEnv() {
   return {
     databaseUrl: requireEnv("DATABASE_URL"),
     secret: requireEnv("BETTER_AUTH_SECRET"),
-    baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    baseURL: (process.env.BETTER_AUTH_URL ?? "http://localhost:3000").trim(),
   };
 }
 

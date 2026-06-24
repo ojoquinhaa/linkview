@@ -11,10 +11,12 @@ import { eq } from "drizzle-orm";
 import * as asaas from "./asaas";
 
 function appUrl(): string {
-  return (process.env.BETTER_AUTH_URL ?? "http://localhost:3000").replace(
-    /\/$/,
-    "",
-  );
+  // trim() guards against trailing whitespace/newlines baked into the env var
+  // (e.g. a CRLF from `vercel env add` piped on Windows), which would otherwise
+  // produce an invalid Asaas callback URL.
+  return (process.env.BETTER_AUTH_URL ?? "http://localhost:3000")
+    .trim()
+    .replace(/\/$/, "");
 }
 
 export interface CheckoutInput {
