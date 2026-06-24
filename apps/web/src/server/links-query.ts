@@ -36,7 +36,13 @@ export async function listLinks(workspaceId: string): Promise<LinkListItem[]> {
       destinationUrl: links.destinationUrl,
       title: links.title,
       totalClicks: links.totalClicks,
-      uniqueClicks: links.uniqueClicks,
+      // Visitors are computed live from distinct IPs (non-bot) so the count
+      // matches the detail analytics; the denormalized column drifts because
+      // ingest only maintains totalClicks.
+      uniqueClicks:
+        sql<number>`coalesce((select count(distinct ${clicks.ipHash}) from ${clicks} where ${clicks.linkId} = ${links.id} and ${clicks.bot} = false), 0)`.mapWith(
+          Number,
+        ),
       isActive: links.isActive,
       expiresAt: links.expiresAt,
       lastClickedAt: links.lastClickedAt,
@@ -82,7 +88,12 @@ export async function getLinkBySlug(
       ogDescription: links.ogDescription,
       ogImageUrl: links.ogImageUrl,
       totalClicks: links.totalClicks,
-      uniqueClicks: links.uniqueClicks,
+      // Live distinct-IP count (see listLinks) — keeps the detail card in step
+      // with the analytics "visitantes" figure.
+      uniqueClicks:
+        sql<number>`coalesce((select count(distinct ${clicks.ipHash}) from ${clicks} where ${clicks.linkId} = ${links.id} and ${clicks.bot} = false), 0)`.mapWith(
+          Number,
+        ),
       isActive: links.isActive,
       expiresAt: links.expiresAt,
       lastClickedAt: links.lastClickedAt,

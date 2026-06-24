@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+
+/** Width of the edge fade that hints at off-screen tabs. */
+const FADE = 22;
 
 type TabIcon = () => React.ReactElement;
 
@@ -76,8 +80,43 @@ export function LinkTabs({ slug }: { slug: string }) {
     },
   ];
 
+  // Fade only the edges that still hide tabs: left appears after scrolling,
+  // right disappears at the end. No overflow (desktop) → no fade.
+  const ref = useRef<HTMLElement>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+  const sync = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setEdges({
+      start: scrollLeft > 1,
+      end: scrollLeft < scrollWidth - clientWidth - 1,
+    });
+  }, []);
+  useEffect(() => {
+    sync();
+    const el = ref.current;
+    if (!el) return;
+    el.addEventListener("scroll", sync, { passive: true });
+    window.addEventListener("resize", sync);
+    return () => {
+      el.removeEventListener("scroll", sync);
+      window.removeEventListener("resize", sync);
+    };
+  }, [sync]);
+
+  const mask = `linear-gradient(to right, ${
+    edges.start ? "transparent 0" : "#000 0"
+  }, #000 ${FADE}px, #000 calc(100% - ${FADE}px), ${
+    edges.end ? "transparent 100%" : "#000 100%"
+  })`;
+
   return (
-    <nav className="-mb-px flex gap-1 overflow-x-auto overflow-y-hidden">
+    <nav
+      ref={ref}
+      className="-mb-px flex gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      style={{ WebkitMaskImage: mask, maskImage: mask }}
+    >
       {tabs.map((t) => {
         const active = t.exact
           ? pathname === t.href
