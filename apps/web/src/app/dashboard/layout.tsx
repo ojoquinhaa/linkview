@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { isPlatformAdmin } from "@/server/admin/guard";
 import { getWorkspaceSubscription } from "@/server/billing/subscription";
+import { getTrialStatus } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
 
@@ -10,6 +11,7 @@ const ACTIVE_SUBSCRIPTION = new Set(["active", "trialing"]);
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Grátis",
+  trial: "Pro (teste)",
   starter: "Starter",
   pro: "Pro",
   business: "Business",
@@ -39,6 +41,8 @@ export default async function DashboardLayout({
     if (!sub || !ACTIVE_SUBSCRIPTION.has(sub.status)) redirect("/assinar");
   }
 
+  const trial = await getTrialStatus(workspace.id);
+
   return (
     <DashboardShell
       user={{ name: session.user.name ?? "", email: session.user.email }}
@@ -46,6 +50,7 @@ export default async function DashboardLayout({
       planLabel={PLAN_LABELS[workspace.planKey] ?? workspace.planKey}
       roleLabel={ROLE_LABELS[workspace.role] ?? workspace.role}
       isAdmin={admin}
+      trialDaysLeft={trial?.daysLeft ?? null}
     >
       {children}
     </DashboardShell>

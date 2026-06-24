@@ -51,6 +51,9 @@ export const subscriptions = pgTable(
     provider: text("provider").notNull().default("asaas"),
     providerSubscriptionId: text("provider_subscription_id"),
     status: subscriptionStatusEnum("status").notNull().default("pending"),
+    /** Cadence the workspace pays on. Drives the renewal date the webhook
+     * stamps (monthly = +1 month, yearly = +1 year) and the price shown. */
+    billingCycle: billingCycleEnum("billing_cycle").notNull().default("monthly"),
     currentPeriodStart: timestamp("current_period_start", {
       withTimezone: true,
     }),

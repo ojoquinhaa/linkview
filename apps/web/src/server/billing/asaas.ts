@@ -90,13 +90,16 @@ export function createSubscription(input: {
   nextDueDate: string;
   description: string;
   externalReference?: string;
+  /** Charge cadence at Asaas. Defaults to monthly. */
+  cycle?: "MONTHLY" | "YEARLY";
   /** Where Asaas returns the payer after a successful payment. */
   callback?: { successUrl: string; autoRedirect?: boolean };
 }): Promise<AsaasSubscription> {
+  const { cycle = "MONTHLY", ...rest } = input;
   return asaas<AsaasSubscription>("/subscriptions", {
     method: "POST",
     // UNDEFINED lets the payer pick Pix / boleto / card on the hosted page.
-    json: { ...input, billingType: "UNDEFINED", cycle: "MONTHLY" },
+    json: { ...rest, billingType: "UNDEFINED", cycle },
   });
 }
 

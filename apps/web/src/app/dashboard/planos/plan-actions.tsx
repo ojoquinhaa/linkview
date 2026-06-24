@@ -1,25 +1,30 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CheckoutForm } from "@/app/assinar/checkout-form";
+import {
+  BillingCycleChoice,
+  type BillingCyclePricing,
+} from "@/components/billing/billing-cycle-choice";
 import { Button } from "@/components/ui/button";
 import { cancelSubscriptionAction } from "@/server/billing/actions";
 
 type Mode = "trial" | "active";
 
 /**
- * Action zone for the plan page. Upgrades reuse the Asaas checkout form inline
- * (no modal); cancellation is a two-step inline confirm so it never fires by
- * accident.
+ * Action zone for the plan page. Upgrades reuse the monthly/annual checkout
+ * inline (no modal); cancellation is a two-step inline confirm so it never
+ * fires by accident.
  */
 export function PlanActions({
   mode,
   canceling,
   trialDays,
+  pricing,
 }: {
   mode: Mode;
   canceling: boolean;
   trialDays: number;
+  pricing: BillingCyclePricing;
 }) {
   // Trial users (and Pro users who already canceled) get the checkout path.
   if (mode === "trial" || canceling) {
@@ -30,10 +35,11 @@ export function PlanActions({
         }
         blurb={
           mode === "trial"
-            ? `Assine antes que o teste de ${trialDays} dias acabe e mantenha tudo sem interrupção.`
-            : "Volte a ter cobrança recorrente e mantenha seu acesso sem data para acabar."
+            ? `Escolha seu ciclo e assine antes que o teste de ${trialDays} dias acabe.`
+            : "Escolha seu ciclo e volte a ter acesso Pro sem data para acabar."
         }
         cta={mode === "trial" ? "Assinar Pro" : "Reativar Pro"}
+        pricing={pricing}
       />
     );
   }
@@ -45,10 +51,12 @@ function Upgrade({
   title,
   blurb,
   cta,
+  pricing,
 }: {
   title: string;
   blurb: string;
   cta: string;
+  pricing: BillingCyclePricing;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -59,7 +67,9 @@ function Upgrade({
       </h3>
       <p className="mt-1.5 text-[0.88rem] text-muted">{blurb}</p>
       {open ? (
-        <CheckoutForm />
+        <div className="mt-5">
+          <BillingCycleChoice pricing={pricing} cta={cta} />
+        </div>
       ) : (
         <Button
           type="button"

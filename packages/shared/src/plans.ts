@@ -88,7 +88,7 @@ export const PLANS: Record<PlanKey, PlanLimits> = {
   pro: {
     key: "pro",
     name: "Pro",
-    priceCents: 1990,
+    priceCents: 2490,
     currency: "BRL",
     billingCycle: "monthly",
     maxLinks: 500,
@@ -127,4 +127,66 @@ export const PLANS: Record<PlanKey, PlanLimits> = {
 
 export function getPlan(key: PlanKey): PlanLimits {
   return PLANS[key];
+}
+
+/** Billing cadence the customer pays on. `monthly` is every plan's base; some
+ * plans also offer a discounted `yearly` cycle (see {@link ANNUAL_PRICE_CENTS}). */
+export type BillingCycle = "monthly" | "yearly";
+
+/**
+ * Yearly price (cents charged once per year) for plans that offer an annual
+ * cycle. A plan absent from this map is monthly-only. Pro's annual is priced
+ * below 12× the monthly so the customer saves by paying upfront.
+ */
+export const ANNUAL_PRICE_CENTS: Partial<Record<PlanKey, number>> = {
+  pro: 24_900,
+};
+
+/** Whether a plan can be bought on a yearly cycle. */
+export function hasAnnualPlan(key: PlanKey): boolean {
+  return ANNUAL_PRICE_CENTS[key] != null;
+}
+
+/** Amount charged per renewal for a plan on the given cycle, in cents. */
+export function getCyclePriceCents(key: PlanKey, cycle: BillingCycle): number {
+  if (cycle === "yearly") {
+    const yearly = ANNUAL_PRICE_CENTS[key];
+    if (yearly == null) {
+      throw new Error(`Plano ${key} não tem ciclo anual.`);
+    }
+    return yearly;
+  }
+  return getPlan(key).priceCents;
+}
+
+export interface AnnualSavings {
+  /** Yearly price, cents. */
+  yearlyCents: number;
+  /** What 12 monthly charges would cost, cents. */
+  monthlyTimesTwelveCents: number;
+  /** Cents saved per year by paying annually. */
+  savingsCents: number;
+  /** Effective monthly cost on the annual plan, cents (yearly / 12, rounded). */
+  monthlyEquivalentCents: number;
+  /** Discount vs. paying monthly, whole percent. */
+  percentOff: number;
+}
+
+/**
+ * Savings of a plan's annual cycle vs. paying month to month. All figures are
+ * derived from the two prices so the marketing copy can never drift from what
+ * we actually charge. Throws if the plan has no annual cycle.
+ */
+export function getAnnualSavings(key: PlanKey): AnnualSavings {
+  const monthly = getPlan(key).priceCents;
+  const yearly = getCyclePriceCents(key, "yearly");
+  const monthlyTimesTwelveCents = monthly * 12;
+  const savingsCents = monthlyTimesTwelveCents - yearly;
+  return {
+    yearlyCents: yearly,
+    monthlyTimesTwelveCents,
+    savingsCents,
+    monthlyEquivalentCents: Math.round(yearly / 12),
+    percentOff: Math.round((savingsCents / monthlyTimesTwelveCents) * 100),
+  };
 }

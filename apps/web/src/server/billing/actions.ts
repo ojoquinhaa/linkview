@@ -1,4 +1,7 @@
 "use server";
+import { getDb, userProfiles } from "@linkview/db";
+import type { BillingCycle } from "@linkview/shared";
+import { eq } from "drizzle-orm";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
 import { cancelWorkspaceSubscription, startSubscription } from "./subscription";
@@ -10,29 +13,40 @@ export interface CheckoutActionResult {
 }
 
 /**
- * Start the Pro subscription for the signed-in user's workspace and hand back
- * the Asaas hosted-checkout URL. The client redirects the browser to it.
+ * Start the Pro subscription for the signed-in user's workspace on the chosen
+ * billing cycle and hand back the Asaas hosted-checkout URL. The client
+ * redirects the browser to it. The fiscal document and phone come from the
+ * profile captured at sign-up — we never ask for them again here.
  */
-export async function createCheckout(input: {
-  cpfCnpj: string;
-  phone?: string;
-}): Promise<CheckoutActionResult> {
+export async function createCheckout(
+  cycle: BillingCycle = "monthly",
+): Promise<CheckoutActionResult> {
   const session = await requireSession();
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) return { error: "Sessão expirada. Entre novamente." };
 
-  const doc = input.cpfCnpj.replace(/\D/g, "");
-  if (doc.length !== 11 && doc.length !== 14) {
-    return { error: "Informe um CPF ou CNPJ válido." };
+  const db = getDb();
+  const [profile] = await db
+    .select({ document: userProfiles.document, phone: userProfiles.phone })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, session.user.id))
+    .limit(1);
+  if (!profile?.document) {
+    return { error: "Complete seu cadastro antes de assinar." };
   }
 
   try {
-    const { invoiceUrl } = await startSubscription(workspace.id, "pro", {
-      name: session.user.name ?? session.user.email,
-      email: session.user.email,
-      cpfCnpj: doc,
-      phone: input.phone?.replace(/\D/g, "") || undefined,
-    });
+    const { invoiceUrl } = await startSubscription(
+      workspace.id,
+      "pro",
+      {
+        name: session.user.name ?? session.user.email,
+        email: session.user.email,
+        cpfCnpj: profile.document,
+        phone: profile.phone || undefined,
+      },
+      cycle,
+    );
     return { url: invoiceUrl };
   } catch (err) {
     console.error("billing.checkout_failed", err);
