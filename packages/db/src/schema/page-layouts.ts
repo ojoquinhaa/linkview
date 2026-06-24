@@ -20,7 +20,7 @@ export const pageLayouts = pgTable(
       onDelete: "set null",
     }),
     name: text("name").notNull(),
-    /** Logo image URL (R2). null renders the urlsimples wordmark. */
+    /** Logo image URL (R2). null renders the linkview wordmark. */
     logoUrl: text("logo_url"),
     // Background: a solid color or an uploaded image.
     bgType: text("bg_type").notNull().default("color"),

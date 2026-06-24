@@ -1,5 +1,5 @@
-import { generateSlug, normalizeSlug } from "@urlsimples/shared";
-import type { Database } from "@urlsimples/db";
+import { generateSlug, normalizeSlug } from "@linkview/shared";
+import type { Database } from "@linkview/db";
 import {
   account,
   session,
@@ -7,7 +7,7 @@ import {
   verification,
   workspaceMembers,
   workspaces,
-} from "@urlsimples/db";
+} from "@linkview/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 

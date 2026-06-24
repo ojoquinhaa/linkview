@@ -1,20 +1,26 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "urlsimples-redirect",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-12-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true },
-  // Bind your KV namespace id after `wrangler kv namespace create LINKS_KV`.
-  "kv_namespaces": [
-    { "binding": "LINKS_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
-  ],
-  "vars": {
-    // CLICK_INGEST_URL points to the web app endpoint /api/internal/clicks.
-    "CLICK_INGEST_URL": "https://app.urlsimples.com.br/api/internal/clicks",
-    // UNLOCK_VERIFY_URL points to the web app endpoint /api/internal/unlock.
-    "UNLOCK_VERIFY_URL": "https://app.urlsimples.com.br/api/internal/unlock"
-  }
-  // Secrets (set via `wrangler secret put`):
-  //   IP_HASH_SALT, CLICK_INGEST_TOKEN, UNLOCK_SECRET, SENTRY_DSN
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "linkview-redirect",
+	"main": "src/index.ts",
+	"compatibility_date": "2024-12-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": { "enabled": true },
+	// Short-link domain. Add the zone in Cloudflare and point DNS (proxied) here.
+	// Apex + www so both lnkv.com.br/slug and www.lnkv.com.br/slug resolve.
+	"routes": [
+		{ "pattern": "lnkv.com.br/*", "zone_name": "lnkv.com.br" },
+		{ "pattern": "www.lnkv.com.br/*", "zone_name": "lnkv.com.br" }
+	],
+	// Bind your KV namespace id after `wrangler kv namespace create LINKS_KV`.
+	"kv_namespaces": [
+		{ "binding": "LINKS_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
+	],
+	"vars": {
+		// CLICK_INGEST_URL points to the web app endpoint /api/internal/clicks.
+		"CLICK_INGEST_URL": "https://app.linkview.com.br/api/internal/clicks",
+		// UNLOCK_VERIFY_URL points to the web app endpoint /api/internal/unlock.
+		"UNLOCK_VERIFY_URL": "https://app.linkview.com.br/api/internal/unlock"
+	}
+	// Secrets (set via `wrangler secret put`):
+	//   IP_HASH_SALT, CLICK_INGEST_TOKEN, UNLOCK_SECRET, SENTRY_DSN
 }

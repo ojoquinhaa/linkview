@@ -16,7 +16,7 @@ export interface PlanLimits {
   qrCodesEnabled: boolean;
   bioPagesEnabled: boolean;
   /** Custom redirect page layouts (own logo, background, colors, blur). Free
-   * plans are locked to the branded urlsimples interstitial. */
+   * plans are locked to the branded linkview interstitial. */
   customSplashEnabled: boolean;
   analyticsRetentionDays: number;
   csvExportEnabled: boolean;

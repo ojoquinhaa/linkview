@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@urlsimples/shared";
+import type { WorkspaceRole } from "@linkview/shared";
 
 /** Workspace-scoped capabilities (ARCHITECTURE.md section 13). */
 export type Permission =

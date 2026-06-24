@@ -1,4 +1,4 @@
-import type { KvLinkRecord } from "@urlsimples/shared";
+import type { KvLinkRecord } from "@linkview/shared";
 import type { Bindings } from "./types";
 
 /** Unlock cookie name for a given link. */

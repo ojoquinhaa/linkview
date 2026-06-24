@@ -1,4 +1,4 @@
-# PRODUCT.md — urlsimples
+# PRODUCT.md — linkview
 
 register: product
 

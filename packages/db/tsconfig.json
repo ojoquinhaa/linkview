@@ -1,5 +1,5 @@
 {
-  "extends": "@urlsimples/config/tsconfig.base.json",
+  "extends": "@linkview/config/tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true
   },

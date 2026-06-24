@@ -1,5 +1,5 @@
 {
-  "name": "@urlsimples/auth",
+  "name": "@linkview/auth",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,12 +11,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@urlsimples/db": "workspace:*",
-    "@urlsimples/shared": "workspace:*",
-    "better-auth": "^1.2.7"
+    "@linkview/db": "workspace:*",
+    "@linkview/shared": "workspace:*",
+    "better-auth": "^1.6.20"
   },
   "devDependencies": {
-    "@urlsimples/config": "workspace:*",
-    "typescript": "^5.7.2"
+    "@linkview/config": "workspace:*",
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3"
   }
 }

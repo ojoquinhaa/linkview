@@ -1,4 +1,4 @@
-# DESIGN.md — urlsimples ("Tinta")
+# DESIGN.md — linkview ("Tinta")
 
 Light only. Cool paper, deep ink, single indigo accent. Daytime, quick, trustworthy.
 Tokens live in `apps/web/src/app/globals.css` (`:root` + `@theme inline`). Use the
@@ -33,8 +33,8 @@ Estratégia: **Restrained**. Accent só em ação primária, seleção e estado.
 
 ## Motivo de marca
 
-O próprio link curto: `urlsimples.com.br/oferta` — domínio em `muted`, slug em
-`accent`. Wordmark = "urlsimples" + marca quadrada accent (cursor/ponto de domínio),
+O próprio link curto: `lnkv.com.br/oferta` — domínio em `muted`, slug em
+`accent`. Wordmark = "linkview" + marca quadrada accent (cursor/ponto de domínio),
 em `components/wordmark.tsx`. Ticker ambiente nas telas de auth digita slugs reais.
 
 ## Componentes (apps/web/src/components)

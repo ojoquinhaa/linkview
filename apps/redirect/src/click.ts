@@ -1,4 +1,4 @@
-import type { ClickIngestInput, KvLinkRecord } from "@urlsimples/shared";
+import type { ClickIngestInput, KvLinkRecord } from "@linkview/shared";
 import type { Bindings } from "./types";
 import { parseUa } from "./ua";
 

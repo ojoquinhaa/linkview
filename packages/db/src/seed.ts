@@ -1,4 +1,4 @@
-import { PLANS } from "@urlsimples/shared";
+import { PLANS } from "@linkview/shared";
 import { config } from "dotenv";
 import { getDb } from "./client";
 import { domains, plans } from "./schema";
@@ -6,10 +6,10 @@ import { domains, plans } from "./schema";
 config({ path: "../../.env" });
 
 /** Idempotent seed: plan catalog + default system domain.
- * Run with: pnpm --filter @urlsimples/db exec tsx src/seed.ts */
+ * Run with: pnpm --filter @linkview/db exec tsx src/seed.ts */
 async function main() {
   const db = getDb();
-  const systemHostname = process.env.SYSTEM_DOMAIN ?? "urlsimples.com.br";
+  const systemHostname = process.env.SYSTEM_DOMAIN ?? "lnkv.com.br";
 
   for (const plan of Object.values(PLANS)) {
     await db

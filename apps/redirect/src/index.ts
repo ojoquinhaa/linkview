@@ -2,7 +2,7 @@ import {
 	isExpired,
 	type KvLinkRecord,
 	kvLinkRecordSchema,
-} from "@urlsimples/shared";
+} from "@linkview/shared";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
@@ -137,7 +137,7 @@ async function isUnlocked(c: Context<Env>, linkId: string): Promise<boolean> {
 }
 
 app.get("/", (c) =>
-	c.text("urlsimples redirect engine", 200, { "cache-control": "no-store" }),
+	c.text("linkview redirect engine", 200, { "cache-control": "no-store" }),
 );
 
 app.get("/favicon.ico", (c) => c.body(null, 204));

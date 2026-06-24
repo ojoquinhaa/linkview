@@ -144,7 +144,7 @@ const hexColor = z
  * the Worker can render without fallbacks.
  */
 export const splashConfigSchema = z.object({
-	/** Logo URL, or null to use the urlsimples wordmark. */
+	/** Logo URL, or null to use the linkview wordmark. */
 	logoUrl: z.string().nullable(),
 	bgType: z.enum(SPLASH_BG_TYPES),
 	bgColor: z.string(),
@@ -154,7 +154,7 @@ export const splashConfigSchema = z.object({
 	accentColor: z.string(),
 	textColor: z.string(),
 	countdownSeconds: z.number(),
-	/** When true, render the "Criado com urlsimples" footer mark. */
+	/** When true, render the "Criado com linkview" footer mark. */
 	showBranding: z.boolean(),
 });
 

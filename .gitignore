@@ -7,11 +7,14 @@ node_modules
 out
 dist
 .turbo
+.wrangler
 
 # env
 .env
 .env.local
 .env.*.local
+.dev.vars
+.dev.vars.*
 
 # logs
 *.log

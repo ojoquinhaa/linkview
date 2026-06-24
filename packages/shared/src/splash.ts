@@ -3,7 +3,7 @@ import { getPlan } from "./plans";
 import type { LogoPosition, SplashBgType, SplashConfig } from "./schemas";
 
 /**
- * The branded urlsimples interstitial forced on free-plan links: a 3-second
+ * The branded linkview interstitial forced on free-plan links: a 3-second
  * countdown that grows the brand before forwarding the visitor.
  */
 export const BRANDED_SPLASH: SplashConfig = {

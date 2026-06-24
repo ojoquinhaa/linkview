@@ -1,5 +1,5 @@
 {
-  "name": "urlsimples",
+  "name": "linkview",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.25.0",
@@ -12,14 +12,14 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "format": "biome format --write .",
-    "db:generate": "pnpm --filter @urlsimples/db db:generate",
-    "db:migrate": "pnpm --filter @urlsimples/db db:migrate",
-    "db:push": "pnpm --filter @urlsimples/db db:push",
-    "db:studio": "pnpm --filter @urlsimples/db db:studio"
+    "db:generate": "pnpm --filter @linkview/db db:generate",
+    "db:migrate": "pnpm --filter @linkview/db db:migrate",
+    "db:push": "pnpm --filter @linkview/db db:push",
+    "db:studio": "pnpm --filter @linkview/db db:studio"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.2.0",
-    "turbo": "^2.3.3",
-    "typescript": "^5.7.2"
+    "@biomejs/biome": "2.5.1",
+    "turbo": "^2.9.18",
+    "typescript": "^6.0.3"
   }
 }

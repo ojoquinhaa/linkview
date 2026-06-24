@@ -4,7 +4,7 @@ import { getDb } from "./client";
 import { user } from "./schema";
 
 // Promote a user to the platform `admin` role so they can reach the internal
-// /admin console. Usage: pnpm --filter @urlsimples/db db:make-admin <email>
+// /admin console. Usage: pnpm --filter @linkview/db db:make-admin <email>
 config({ path: "../../.env" });
 
 async function main() {

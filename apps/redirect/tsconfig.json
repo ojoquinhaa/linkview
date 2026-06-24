@@ -1,9 +1,9 @@
 {
-  "extends": "@urlsimples/config/tsconfig.base.json",
-  "compilerOptions": {
-    "noEmit": true,
-    "lib": ["ES2022"],
-    "types": ["@cloudflare/workers-types"]
-  },
-  "include": ["src/**/*.ts", "worker-configuration.d.ts"]
+	"extends": "@linkview/config/tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"lib": ["ES2022"],
+		"types": ["@cloudflare/workers-types"]
+	},
+	"include": ["src/**/*.ts", "worker-configuration.d.ts"]
 }

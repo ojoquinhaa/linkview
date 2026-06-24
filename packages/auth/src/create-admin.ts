@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getDb } from "@urlsimples/db";
+import { getDb } from "@linkview/db";
 import { createAuth } from "./index";
 
 // One-off helper: create a platform admin account with a known password (valid
