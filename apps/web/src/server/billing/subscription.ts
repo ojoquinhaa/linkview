@@ -175,6 +175,54 @@ export async function getWorkspaceSubscription(
   return row ?? null;
 }
 
+/**
+ * Switch an active paid subscription between monthly and yearly in place. We
+ * update the existing Asaas subscription (no cancel, no new charge today), so
+ * access never drops and there's no double billing. The new cycle and price
+ * take effect from the next renewal; the local `billingCycle` is updated so the
+ * webhook stamps the right period length when that charge confirms.
+ */
+export async function changeSubscriptionCycle(
+  workspaceId: string,
+  cycle: BillingCycle,
+): Promise<void> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: subscriptions.id,
+      providerSubscriptionId: subscriptions.providerSubscriptionId,
+      billingCycle: subscriptions.billingCycle,
+      status: subscriptions.status,
+      planKey: plans.key,
+    })
+    .from(subscriptions)
+    .innerJoin(plans, eq(subscriptions.planId, plans.id))
+    .where(eq(subscriptions.workspaceId, workspaceId))
+    .limit(1);
+
+  if (!row?.providerSubscriptionId) {
+    throw new Error("Nenhuma assinatura ativa para alterar.");
+  }
+  if (row.status !== "active") {
+    throw new Error("Só é possível trocar o ciclo de uma assinatura ativa.");
+  }
+  if (row.billingCycle === cycle) return;
+
+  const plan = getPlan(row.planKey as PlanKey);
+  const priceCents = getCyclePriceCents(row.planKey as PlanKey, cycle);
+
+  await asaas.updateSubscription(row.providerSubscriptionId, {
+    value: priceCents / 100,
+    cycle: cycle === "yearly" ? "YEARLY" : "MONTHLY",
+    description: `linkview ${plan.name} (${cycle === "yearly" ? "anual" : "mensal"})`,
+  });
+
+  await db
+    .update(subscriptions)
+    .set({ billingCycle: cycle })
+    .where(eq(subscriptions.id, row.id));
+}
+
 /** Cancel at Asaas and mark the local subscription canceled. */
 export async function cancelWorkspaceSubscription(
   workspaceId: string,

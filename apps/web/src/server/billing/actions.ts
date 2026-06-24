@@ -4,7 +4,11 @@ import type { BillingCycle } from "@linkview/shared";
 import { eq } from "drizzle-orm";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
-import { cancelWorkspaceSubscription, startSubscription } from "./subscription";
+import {
+  cancelWorkspaceSubscription,
+  changeSubscriptionCycle,
+  startSubscription,
+} from "./subscription";
 import { type StartTrialResult, startTrial } from "./trial";
 
 export interface CheckoutActionResult {
@@ -59,6 +63,36 @@ export async function createCheckout(
 /** Start the 7-day Pro trial for the signed-in user's workspace. */
 export async function startTrialAction(): Promise<StartTrialResult> {
   return startTrial();
+}
+
+export interface SwitchCycleResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Switch the signed-in user's active subscription between monthly and yearly.
+ * The change is applied in place at Asaas and takes effect from the next
+ * renewal — no charge today, no loss of access.
+ */
+export async function switchBillingCycleAction(
+  cycle: BillingCycle,
+): Promise<SwitchCycleResult> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace)
+    return { ok: false, error: "Sessão expirada. Entre novamente." };
+
+  try {
+    await changeSubscriptionCycle(workspace.id, cycle);
+    return { ok: true };
+  } catch (err) {
+    console.error("billing.switch_cycle_failed", err);
+    return {
+      ok: false,
+      error: "Não foi possível alterar o ciclo agora. Tente novamente.",
+    };
+  }
 }
 
 export interface CancelActionResult {
