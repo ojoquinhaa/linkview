@@ -1,7 +1,12 @@
 import "server-only";
 import type { Database } from "@linkview/db";
 import { billingCustomers, getDb, plans, subscriptions } from "@linkview/db";
-import { getPlan, type PlanKey } from "@linkview/shared";
+import {
+  type BillingCycle,
+  getCyclePriceCents,
+  getPlan,
+  type PlanKey,
+} from "@linkview/shared";
 import { eq } from "drizzle-orm";
 import * as asaas from "./asaas";
 
@@ -78,9 +83,11 @@ export async function startSubscription(
   workspaceId: string,
   planKey: PlanKey,
   input: CheckoutInput,
+  cycle: BillingCycle = "monthly",
 ): Promise<CheckoutResult> {
   const plan = getPlan(planKey);
-  if (plan.priceCents <= 0) {
+  const priceCents = getCyclePriceCents(planKey, cycle);
+  if (priceCents <= 0) {
     throw new Error("O plano gratuito não exige pagamento.");
   }
   const db = getDb();
@@ -89,10 +96,11 @@ export async function startSubscription(
 
   const sub = await asaas.createSubscription({
     customer: customerId,
-    value: row.priceCents / 100,
+    value: priceCents / 100,
     nextDueDate: new Date().toISOString().slice(0, 10),
-    description: `linkview ${plan.name}`,
+    description: `linkview ${plan.name} (${cycle === "yearly" ? "anual" : "mensal"})`,
     externalReference: workspaceId,
+    cycle: cycle === "yearly" ? "YEARLY" : "MONTHLY",
     callback: {
       successUrl: `${appUrl()}/assinar?status=ok`,
       autoRedirect: true,
@@ -113,6 +121,7 @@ export async function startSubscription(
         provider: "asaas",
         providerSubscriptionId: sub.id,
         status: "pending",
+        billingCycle: cycle,
         cancelAtPeriodEnd: false,
         canceledAt: null,
       })
@@ -124,6 +133,7 @@ export async function startSubscription(
       provider: "asaas",
       providerSubscriptionId: sub.id,
       status: "pending",
+      billingCycle: cycle,
     });
   }
 
@@ -138,6 +148,7 @@ export async function startSubscription(
 export interface WorkspaceSubscription {
   status: string;
   planKey: string;
+  billingCycle: BillingCycle;
   providerSubscriptionId: string | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
@@ -152,6 +163,7 @@ export async function getWorkspaceSubscription(
     .select({
       status: subscriptions.status,
       planKey: plans.key,
+      billingCycle: subscriptions.billingCycle,
       providerSubscriptionId: subscriptions.providerSubscriptionId,
       currentPeriodEnd: subscriptions.currentPeriodEnd,
       cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,

@@ -1,0 +1,1 @@
+ALTER TABLE "subscriptions" ADD COLUMN "billing_cycle" "billing_cycle" DEFAULT 'monthly' NOT NULL;

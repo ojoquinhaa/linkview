@@ -7,6 +7,7 @@ import { Wordmark } from "@/components/wordmark";
 import { cn } from "@/lib/cn";
 import { NavLinks, SupportLink, WorkspaceFooter } from "./sidebar";
 import { TopBar } from "./topbar";
+import { TrialBanner } from "./trial-banner";
 
 export function DashboardShell({
   user,
@@ -14,6 +15,7 @@ export function DashboardShell({
   planLabel,
   roleLabel,
   isAdmin,
+  trialDaysLeft,
   children,
 }: {
   user: { name: string; email: string };
@@ -21,6 +23,8 @@ export function DashboardShell({
   planLabel: string;
   roleLabel: string;
   isAdmin?: boolean;
+  /** Days left on the free trial, or null when not trialing. */
+  trialDaysLeft?: number | null;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -72,6 +76,7 @@ export function DashboardShell({
           onMenu={() => setOpen(true)}
           menuId={drawerId}
         />
+        {trialDaysLeft != null && <TrialBanner daysLeft={trialDaysLeft} />}
         <main className="min-w-0 flex-1">{children}</main>
       </div>
 

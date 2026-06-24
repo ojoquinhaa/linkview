@@ -1,4 +1,9 @@
-import { getPlan, type PlanKey, TRIAL_DURATION_DAYS } from "@linkview/shared";
+import {
+  getAnnualSavings,
+  getPlan,
+  type PlanKey,
+  TRIAL_DURATION_DAYS,
+} from "@linkview/shared";
 import { redirect } from "next/navigation";
 import { getWorkspaceSubscription } from "@/server/billing/subscription";
 import { getTrialStatus } from "@/server/billing/trial";
@@ -53,6 +58,18 @@ export default async function PlanosPage() {
   const onTrial = sub.status === "trialing";
   const trial = onTrial ? await getTrialStatus(workspace.id) : null;
   const pro = getPlan("pro");
+  const savings = getAnnualSavings("pro");
+  const pricing = {
+    monthlyCents: pro.priceCents,
+    yearlyCents: savings.yearlyCents,
+    monthlyEquivCents: savings.monthlyEquivalentCents,
+    savingsCents: savings.savingsCents,
+    percentOff: savings.percentOff,
+  };
+  // What the workspace pays today, by its chosen cycle.
+  const annual = sub.billingCycle === "yearly";
+  const priceCents = annual ? savings.yearlyCents : pro.priceCents;
+  const cadence = annual ? "ano" : "mês";
   const perks = perksFor(onTrial ? "trial" : (sub.planKey as PlanKey));
   const renewsAt = sub.currentPeriodEnd;
 
@@ -101,10 +118,10 @@ export default async function PlanosPage() {
               </div>
               <div className="shrink-0 text-right">
                 <span className="nums text-[1.5rem] font-semibold leading-none text-ink">
-                  {onTrial ? "Grátis" : brl(pro.priceCents)}
+                  {onTrial ? "Grátis" : brl(priceCents)}
                 </span>
                 {!onTrial && (
-                  <span className="text-[0.8rem] text-muted">/mês</span>
+                  <span className="text-[0.8rem] text-muted">/{cadence}</span>
                 )}
                 {onTrial && (
                   <p className="mt-1 text-[0.78rem] text-muted">
@@ -165,6 +182,7 @@ export default async function PlanosPage() {
             mode={onTrial ? "trial" : "active"}
             canceling={sub.cancelAtPeriodEnd}
             trialDays={TRIAL_DURATION_DAYS}
+            pricing={pricing}
           />
         </div>
       </div>

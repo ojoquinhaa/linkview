@@ -1,12 +1,16 @@
-import { getPlan, TRIAL_DURATION_DAYS } from "@linkview/shared";
+import {
+  getAnnualSavings,
+  getPlan,
+  TRIAL_DURATION_DAYS,
+} from "@linkview/shared";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { BillingCycleChoice } from "@/components/billing/billing-cycle-choice";
 import { Wordmark } from "@/components/wordmark";
 import { getWorkspaceSubscription } from "@/server/billing/subscription";
 import { getTrialEligibility } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
-import { CheckoutForm } from "./checkout-form";
 import { TrialCta } from "./trial-cta";
 
 const ACTIVE = new Set(["active", "trialing"]);
@@ -42,6 +46,14 @@ export default async function AssinarPage({
   const { status } = await searchParams;
   const awaiting = sub?.status === "pending" || status === "ok";
   const plan = getPlan("pro");
+  const savings = getAnnualSavings("pro");
+  const pricing = {
+    monthlyCents: plan.priceCents,
+    yearlyCents: savings.yearlyCents,
+    monthlyEquivCents: savings.monthlyEquivalentCents,
+    savingsCents: savings.savingsCents,
+    percentOff: savings.percentOff,
+  };
   const trial = await getTrialEligibility(
     session.user.id,
     session.user.email,
@@ -65,23 +77,20 @@ export default async function AssinarPage({
               <Awaiting />
             ) : (
               <>
-                <div className="flex items-baseline justify-between gap-3">
-                  <h1 className="font-display text-[1.5rem] font-semibold tracking-[-0.02em] text-ink">
-                    Plano {plan.name}
-                  </h1>
-                  <div className="text-right">
-                    <span className="nums text-[1.4rem] font-semibold text-ink">
-                      {brl(plan.priceCents)}
-                    </span>
-                    <span className="text-[0.8rem] text-muted">/mês</span>
-                  </div>
-                </div>
+                <h1 className="font-display text-[1.5rem] font-semibold tracking-[-0.02em] text-ink">
+                  Plano {plan.name}
+                </h1>
                 <p className="mt-1.5 text-[0.9rem] text-muted">
                   Tudo que você precisa para criar e medir seus links. Cancele
                   quando quiser.
                 </p>
 
-                {trial.eligible && <TrialCta days={TRIAL_DURATION_DAYS} />}
+                {trial.eligible && (
+                  <TrialCta
+                    days={TRIAL_DURATION_DAYS}
+                    priceLabel={brl(plan.priceCents)}
+                  />
+                )}
 
                 <ul className="mt-5 flex flex-col gap-2.5 border-t border-line pt-5">
                   {PRO_PERKS.map((perk) => (
@@ -95,7 +104,20 @@ export default async function AssinarPage({
                   ))}
                 </ul>
 
-                <CheckoutForm />
+                <div className="mt-6 border-t border-line pt-6">
+                  {trial.eligible && (
+                    <p className="mb-4 text-[0.82rem] font-medium text-ink-soft">
+                      Ou assine agora, sem teste
+                    </p>
+                  )}
+                  <BillingCycleChoice
+                    pricing={pricing}
+                    secondary={trial.eligible}
+                    cta={
+                      trial.eligible ? "Assinar agora" : "Ir para o pagamento"
+                    }
+                  />
+                </div>
               </>
             )}
           </div>

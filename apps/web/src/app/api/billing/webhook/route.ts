@@ -37,6 +37,17 @@ function addMonth(from: Date): Date {
   return d;
 }
 
+function addYear(from: Date): Date {
+  const d = new Date(from);
+  d.setFullYear(d.getFullYear() + 1);
+  return d;
+}
+
+/** Next renewal date for a paid period that just started, by billing cadence. */
+function periodEnd(from: Date, cycle: string): Date {
+  return cycle === "yearly" ? addYear(from) : addMonth(from);
+}
+
 /** Resolve the local subscription row from event payload. */
 async function resolveSubscription(
   db: ReturnType<typeof getDb>,
@@ -54,6 +65,7 @@ async function resolveSubscription(
         id: subscriptions.id,
         workspaceId: subscriptions.workspaceId,
         planId: subscriptions.planId,
+        billingCycle: subscriptions.billingCycle,
       })
       .from(subscriptions)
       .where(eq(subscriptions.providerSubscriptionId, providerSubId))
@@ -66,6 +78,7 @@ async function resolveSubscription(
         id: subscriptions.id,
         workspaceId: subscriptions.workspaceId,
         planId: subscriptions.planId,
+        billingCycle: subscriptions.billingCycle,
       })
       .from(subscriptions)
       .where(eq(subscriptions.workspaceId, workspaceId))
@@ -125,7 +138,7 @@ export async function POST(request: Request) {
         .set({
           status: "active",
           currentPeriodStart: paidAt,
-          currentPeriodEnd: addMonth(paidAt),
+          currentPeriodEnd: periodEnd(paidAt, sub.billingCycle),
           cancelAtPeriodEnd: false,
           canceledAt: null,
         })
