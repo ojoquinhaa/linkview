@@ -47,7 +47,7 @@ export default async function LinkLayout({
           Todos os links
         </Link>
 
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+        <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <Link
@@ -74,18 +74,16 @@ export default async function LinkLayout({
             </p>
           </div>
 
-          <div className="flex flex-col items-end gap-2.5">
-            <div className="flex items-center gap-1">
-              <CopyButton value={shortUrl} />
-              <Link
-                href={shortUrl}
-                target="_blank"
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.8rem] font-medium text-muted transition-colors hover:bg-paper-sunk hover:text-ink"
-              >
-                <OpenGlyph />
-                Abrir
-              </Link>
-            </div>
+          <div className="flex flex-wrap items-center gap-2 lg:shrink-0 lg:justify-end">
+            <CopyButton variant="primary" value={shortUrl} />
+            <Link
+              href={shortUrl}
+              target="_blank"
+              className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-input)] border border-line-strong bg-surface px-3 text-[0.83rem] font-medium text-ink transition-colors hover:bg-paper-sunk"
+            >
+              <OpenGlyph />
+              Abrir
+            </Link>
             {(canEdit || canDelete) && (
               <LinkActions
                 variant="bar"
@@ -165,7 +163,7 @@ function OpenGlyph() {
       strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-3.5"
+      className="size-4 text-muted"
     >
       <path d="M7 17 17 7" />
       <path d="M8 7h9v9" />

@@ -66,7 +66,7 @@ export function ClicksTrend({
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         {peak && peak.value > 0 ? (
           <p className="text-[0.82rem] text-muted">
             Pico:{" "}

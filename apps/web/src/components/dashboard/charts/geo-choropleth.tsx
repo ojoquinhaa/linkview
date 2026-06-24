@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { ChartSkeleton } from "./clicks-area-chart";
 import { type EChartsCoreOption, echarts, ReactEChartsCore } from "./echarts";
 import { useChartTheme } from "./theme";
+import { useChartHeight, useCoarsePointer } from "./use-responsive";
 
 export interface GeoDatum {
   /** Matches a GeoJSON feature `name` (ISO alpha-2 for world, UF for Brazil). */
@@ -80,6 +81,10 @@ export function GeoChoropleth({
   height?: number;
 }) {
   const theme = useChartTheme();
+  // Phones get a shorter map and no pan/zoom: roam on touch would hijack the
+  // swipe and trap page scroll. Desktop keeps full roam.
+  const coarse = useCoarsePointer();
+  const resolvedHeight = useChartHeight(height, Math.min(height, 340));
 
   const option = useMemo<EChartsCoreOption | null>(() => {
     if (!theme) return null;
@@ -123,7 +128,7 @@ export function GeoChoropleth({
         {
           type: "map",
           map: mapName,
-          roam: true,
+          roam: !coarse,
           scaleLimit: { min: 1, max: 14 },
           center: frame?.center,
           zoom: frame?.zoom ?? baseZoom,
@@ -142,15 +147,15 @@ export function GeoChoropleth({
         },
       ],
     };
-  }, [theme, mapName, geo, data, total, focusKey, baseZoom, label]);
+  }, [theme, mapName, geo, data, total, focusKey, baseZoom, label, coarse]);
 
-  if (!option) return <ChartSkeleton height={height} />;
+  if (!option) return <ChartSkeleton height={resolvedHeight} />;
 
   return (
     <ReactEChartsCore
       echarts={echarts}
       option={option}
-      style={{ height, width: "100%" }}
+      style={{ height: resolvedHeight, width: "100%" }}
       opts={{ renderer: "canvas" }}
       notMerge
     />

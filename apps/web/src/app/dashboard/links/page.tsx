@@ -267,7 +267,7 @@ function EmptyState({ domain }: { domain: string }) {
       </p>
       <Link
         href="/dashboard/links/new"
-        className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-input)] bg-accent pr-4 pl-3.5 text-[0.88rem] font-medium text-accent-ink shadow-[0_1px_2px_oklch(0.42_0.16_265/0.35),0_2px_8px_oklch(0.42_0.16_265/0.2)] transition-colors hover:bg-accent-deep"
+        className="mx-auto mt-5 flex h-10 w-fit items-center gap-1.5 rounded-[var(--radius-input)] bg-accent pr-4 pl-3.5 text-[0.88rem] font-medium text-accent-ink shadow-[0_1px_2px_oklch(0.42_0.16_265/0.35),0_2px_8px_oklch(0.42_0.16_265/0.2)] transition-colors hover:bg-accent-deep"
       >
         <svg
           aria-hidden="true"
@@ -284,7 +284,7 @@ function EmptyState({ domain }: { domain: string }) {
         </svg>
         Criar primeiro link
       </Link>
-      <p className="mt-5 inline-block rounded-lg border border-line bg-paper px-3 py-2 font-mono text-[0.82rem] text-muted">
+      <p className="mx-auto mt-5 block w-fit rounded-lg border border-line bg-paper px-3 py-2 font-mono text-[0.82rem] text-muted">
         {domain}/<span className="text-accent-deep">sua-promo</span>
       </p>
     </div>

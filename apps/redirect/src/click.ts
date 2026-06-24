@@ -55,16 +55,22 @@ export async function buildClick(
 }
 
 /**
- * Send the click to the app ingest endpoint. Fire-and-forget: failures are
- * swallowed so they never block the redirect (§11.5 Option A).
+ * Send the click to the app ingest endpoint. Fire-and-forget: failures never
+ * block the redirect (§11.5 Option A), but they are logged. A non-2xx response
+ * (401 token mismatch, 422 bad payload) silently dropped the click before, so
+ * the only way to tell a working ingest from a broken one was to watch the DB.
+ * With observability enabled these logs surface in the Worker dashboard.
  */
 export async function sendClick(
 	payload: ClickIngestInput,
 	env: Bindings,
 ): Promise<void> {
-	if (!env.CLICK_INGEST_URL) return;
+	if (!env.CLICK_INGEST_URL) {
+		console.error("click.ingest_skipped: CLICK_INGEST_URL is not configured");
+		return;
+	}
 	try {
-		await fetch(env.CLICK_INGEST_URL, {
+		const res = await fetch(env.CLICK_INGEST_URL, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
@@ -75,7 +81,15 @@ export async function sendClick(
 			body: JSON.stringify(payload),
 			signal: AbortSignal.timeout(2000),
 		});
-	} catch {
-		// Swallow — tracking must never break redirects.
+		if (!res.ok) {
+			const detail = await res.text().catch(() => "");
+			console.error(
+				`click.ingest_failed: ${res.status} ${res.statusText} ${detail}`.trim(),
+			);
+		}
+	} catch (err) {
+		// Network error / timeout. Swallowed so tracking never breaks redirects,
+		// but logged so a persistently unreachable endpoint is visible.
+		console.error("click.ingest_error", err);
 	}
 }
