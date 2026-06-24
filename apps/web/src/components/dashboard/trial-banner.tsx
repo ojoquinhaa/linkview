@@ -23,7 +23,7 @@ export function TrialBanner({ daysLeft }: { daysLeft: number }) {
         <span className="text-accent-deep/70"> · {remaining}</span>
       </p>
       <Link
-        href="/assinar"
+        href="/dashboard/planos"
         className="shrink-0 rounded-full bg-accent px-3 py-1 text-[0.78rem] font-semibold text-accent-ink transition-colors hover:bg-accent-deep"
       >
         Assinar agora

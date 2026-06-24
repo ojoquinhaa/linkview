@@ -91,96 +91,101 @@ export interface StartTrialResult {
  * single batch (Neon HTTP batch = one transaction).
  */
 export async function startTrial(): Promise<StartTrialResult> {
-  const session = await requireSession();
-  const userId = session.user.id;
-  const email = session.user.email.toLowerCase();
+  try {
+    const session = await requireSession();
+    const userId = session.user.id;
+    const email = session.user.email.toLowerCase();
 
-  const workspace = await getActiveWorkspace(userId);
-  if (!workspace)
-    return { ok: false, error: "Sessão expirada. Entre novamente." };
-  if (workspace.planKey !== "free") {
-    return { ok: false, error: "Seu workspace já tem um plano ativo." };
-  }
+    const workspace = await getActiveWorkspace(userId);
+    if (!workspace)
+      return { ok: false, error: "Sessão expirada. Entre novamente." };
+    if (workspace.planKey !== "free") {
+      return { ok: false, error: "Seu workspace já tem um plano ativo." };
+    }
 
-  const db = getDb();
+    const db = getDb();
 
-  const [profile] = await db
-    .select({
-      document: userProfiles.document,
-      signupIp: userProfiles.signupIp,
-    })
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, userId))
-    .limit(1);
-  if (!profile) {
-    return {
-      ok: false,
-      error: "Complete seu cadastro antes de iniciar o teste.",
-    };
-  }
+    // Independent reads run together to cut serverless round-trips (each Neon
+    // HTTP call is a separate hop; doing them in parallel keeps the click snappy
+    // even on a cold connection).
+    const [[profile], [trialPlan], [existing]] = await Promise.all([
+      db
+        .select({
+          document: userProfiles.document,
+          signupIp: userProfiles.signupIp,
+        })
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, userId))
+        .limit(1),
+      db
+        .select({ id: plans.id })
+        .from(plans)
+        .where(eq(plans.key, TRIAL_PLAN_KEY))
+        .limit(1),
+      // A fresh free workspace has no subscription row yet; reuse it if one
+      // exists (e.g. an abandoned checkout left a `pending` row).
+      db
+        .select({ id: subscriptions.id })
+        .from(subscriptions)
+        .where(eq(subscriptions.workspaceId, workspace.id))
+        .limit(1),
+    ]);
 
-  const prior = await findPriorRedemption(db, {
-    document: profile.document,
-    email,
-    ip: profile.signupIp,
-  });
-  if (prior) {
-    return {
-      ok: false,
-      error: "Este CPF/CNPJ, e-mail ou dispositivo já utilizou o teste grátis.",
-    };
-  }
+    if (!profile) {
+      return {
+        ok: false,
+        error: "Complete seu cadastro antes de iniciar o teste.",
+      };
+    }
+    if (!trialPlan) {
+      return {
+        ok: false,
+        error: "Plano de teste indisponível. Tente mais tarde.",
+      };
+    }
 
-  const [trialPlan] = await db
-    .select({ id: plans.id })
-    .from(plans)
-    .where(eq(plans.key, TRIAL_PLAN_KEY))
-    .limit(1);
-  if (!trialPlan) {
-    return {
-      ok: false,
-      error: "Plano de teste indisponível. Tente mais tarde.",
-    };
-  }
+    const prior = await findPriorRedemption(db, {
+      document: profile.document,
+      email,
+      ip: profile.signupIp,
+    });
+    if (prior) {
+      return {
+        ok: false,
+        error:
+          "Este CPF/CNPJ, e-mail ou dispositivo já utilizou o teste grátis.",
+      };
+    }
 
-  const now = new Date();
-  const endsAt = new Date(
-    now.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000,
-  );
+    const now = new Date();
+    const endsAt = new Date(
+      now.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000,
+    );
 
-  // A fresh free workspace has no subscription row yet; reuse it if one exists
-  // (e.g. an abandoned checkout left a `pending` row).
-  const [existing] = await db
-    .select({ id: subscriptions.id })
-    .from(subscriptions)
-    .where(eq(subscriptions.workspaceId, workspace.id))
-    .limit(1);
-
-  const subscriptionWrite = existing
-    ? db
-        .update(subscriptions)
-        .set({
+    const subscriptionWrite = existing
+      ? db
+          .update(subscriptions)
+          .set({
+            planId: trialPlan.id,
+            provider: "trial",
+            status: "trialing",
+            currentPeriodStart: now,
+            currentPeriodEnd: endsAt,
+            trialEndsAt: endsAt,
+            cancelAtPeriodEnd: false,
+            canceledAt: null,
+          })
+          .where(eq(subscriptions.id, existing.id))
+      : db.insert(subscriptions).values({
+          workspaceId: workspace.id,
           planId: trialPlan.id,
           provider: "trial",
           status: "trialing",
           currentPeriodStart: now,
           currentPeriodEnd: endsAt,
           trialEndsAt: endsAt,
-          cancelAtPeriodEnd: false,
-          canceledAt: null,
-        })
-        .where(eq(subscriptions.id, existing.id))
-    : db.insert(subscriptions).values({
-        workspaceId: workspace.id,
-        planId: trialPlan.id,
-        provider: "trial",
-        status: "trialing",
-        currentPeriodStart: now,
-        currentPeriodEnd: endsAt,
-        trialEndsAt: endsAt,
-      });
+        });
 
-  try {
     await db.batch([
       subscriptionWrite,
       db
@@ -197,15 +202,17 @@ export async function startTrial(): Promise<StartTrialResult> {
         endsAt,
       }),
     ]);
+
+    return { ok: true };
   } catch (err) {
+    // Never let the action reject: a thrown query (cold DB, missing env, etc.)
+    // would otherwise leave the client button spinning forever.
     console.error("trial.start_failed", err);
     return {
       ok: false,
       error: "Não foi possível iniciar o teste. Tente de novo.",
     };
   }
-
-  return { ok: true };
 }
 
 /**

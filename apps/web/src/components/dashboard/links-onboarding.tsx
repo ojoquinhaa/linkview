@@ -35,10 +35,8 @@ export function LinksOnboarding() {
 
   const remember = () => localStorage.setItem(STORAGE_KEY, "done");
 
-  // Close without persisting: user may want it back next visit.
-  const close = () => setOpen(false);
-
-  // Close and never auto-open again.
+  // Any close (X, backdrop, Esc, button) persists — it should not pop back up
+  // on the next visit. The "Como funciona" button below reopens it on demand.
   const dismiss = () => {
     remember();
     setOpen(false);
@@ -77,23 +75,23 @@ export function LinksOnboarding() {
 
       <Modal
         open={open === true}
-        onClose={close}
+        onClose={dismiss}
         title="Bem-vindo ao linkview"
         description="Crie links curtos e descubra de onde vem cada clique. Em três passos:"
         className="w-[min(30rem,calc(100vw-2rem))]"
       >
-        <div className="flex flex-col gap-4">
-          <ol className="flex flex-col gap-3.5">
+        <div className="flex flex-col gap-5">
+          <ol className="flex flex-col gap-4">
             {STEPS.map((s) => (
-              <li key={s.n} className="flex gap-3">
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent-weak font-mono text-[0.8rem] font-semibold text-accent-deep">
+              <li key={s.n} className="flex gap-3.5">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-weak font-mono text-[0.85rem] font-semibold text-accent-deep">
                   {s.n}
                 </span>
                 <div className="min-w-0 pt-0.5">
-                  <p className="text-[0.88rem] font-semibold text-ink">
+                  <p className="text-[0.9rem] font-semibold text-ink">
                     {s.title}
                   </p>
-                  <p className="mt-0.5 text-[0.82rem] leading-relaxed text-muted">
+                  <p className="mt-0.5 text-[0.84rem] leading-relaxed text-muted">
                     {s.body}
                   </p>
                 </div>
@@ -101,22 +99,13 @@ export function LinksOnboarding() {
             ))}
           </ol>
 
-          <div className="mt-1 flex items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={dismiss}
-              className="text-[0.83rem] font-medium text-muted transition-colors hover:text-ink"
-            >
-              Não mostrar de novo
-            </button>
-            <button
-              type="button"
-              onClick={startCreating}
-              className="inline-flex h-10 items-center justify-center rounded-[var(--radius-input)] bg-accent px-4 text-[0.88rem] font-medium text-accent-ink shadow-[0_1px_2px_oklch(0.42_0.16_265/0.35),0_2px_8px_oklch(0.42_0.16_265/0.2)] transition-colors hover:bg-accent-deep"
-            >
-              Criar meu primeiro link
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={startCreating}
+            className="inline-flex h-11 w-full items-center justify-center rounded-[var(--radius-input)] bg-accent px-4 text-[0.9rem] font-medium text-accent-ink shadow-[0_1px_2px_oklch(0.42_0.16_265/0.35),0_2px_8px_oklch(0.42_0.16_265/0.2)] transition-colors hover:bg-accent-deep"
+          >
+            Criar meu primeiro link
+          </button>
         </div>
       </Modal>
     </>

@@ -9,7 +9,7 @@ config({ path: "../../.env" });
  * Run with: pnpm --filter @linkview/db exec tsx src/seed.ts */
 async function main() {
   const db = getDb();
-  const systemHostname = process.env.SYSTEM_DOMAIN ?? "lnkv.com.br";
+  const systemHostname = (process.env.SYSTEM_DOMAIN ?? "lnkv.com.br").trim();
 
   for (const plan of Object.values(PLANS)) {
     await db

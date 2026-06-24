@@ -71,7 +71,7 @@ export function Modal({
               type="button"
               onClick={onClose}
               aria-label="Fechar"
-              className="-mr-1.5 -mt-1 inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-input)] text-muted transition-colors hover:bg-paper-sunk hover:text-ink"
+              className="-mr-2 -mt-1.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-paper-sunk hover:text-ink"
             >
               <svg
                 aria-hidden="true"
@@ -79,9 +79,9 @@ export function Modal({
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth={1.5}
+                strokeWidth={1.8}
                 strokeLinecap="round"
-                className="size-4"
+                className="size-[1.35rem]"
               >
                 <line x1="6" y1="6" x2="18" y2="18" />
                 <line x1="18" y1="6" x2="6" y2="18" />

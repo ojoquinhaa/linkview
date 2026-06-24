@@ -25,21 +25,21 @@ export interface CheckoutActionResult {
 export async function createCheckout(
   cycle: BillingCycle = "monthly",
 ): Promise<CheckoutActionResult> {
-  const session = await requireSession();
-  const workspace = await getActiveWorkspace(session.user.id);
-  if (!workspace) return { error: "Sessão expirada. Entre novamente." };
-
-  const db = getDb();
-  const [profile] = await db
-    .select({ document: userProfiles.document, phone: userProfiles.phone })
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, session.user.id))
-    .limit(1);
-  if (!profile?.document) {
-    return { error: "Complete seu cadastro antes de assinar." };
-  }
-
   try {
+    const session = await requireSession();
+    const workspace = await getActiveWorkspace(session.user.id);
+    if (!workspace) return { error: "Sessão expirada. Entre novamente." };
+
+    const db = getDb();
+    const [profile] = await db
+      .select({ document: userProfiles.document, phone: userProfiles.phone })
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, session.user.id))
+      .limit(1);
+    if (!profile?.document) {
+      return { error: "Complete seu cadastro antes de assinar." };
+    }
+
     const { invoiceUrl } = await startSubscription(
       workspace.id,
       "pro",
@@ -53,6 +53,7 @@ export async function createCheckout(
     );
     return { url: invoiceUrl };
   } catch (err) {
+    // Never reject — a thrown read would leave the checkout button spinning.
     console.error("billing.checkout_failed", err);
     return {
       error: "Não foi possível iniciar o pagamento. Tente novamente.",

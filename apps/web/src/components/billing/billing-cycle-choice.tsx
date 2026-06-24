@@ -11,6 +11,13 @@ const brl = (cents: number) =>
     currency: "BRL",
   });
 
+/** Bare amount, no currency symbol — "24,90". */
+const amount = (cents: number) =>
+  (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 export interface BillingCyclePricing {
   monthlyCents: number;
   yearlyCents: number;
@@ -22,16 +29,17 @@ export interface BillingCyclePricing {
 }
 
 /**
- * Monthly / annual segmented control with a price that swaps under it and a
- * checkout button. CPF/CNPJ + phone are already on file from sign-up, so the
- * button hands straight off to the Asaas hosted checkout for the chosen cycle.
- * `secondary` quiets the button when the free trial is the primary action above.
+ * Pro pricing block: a monthly headline price with a single, clickable annual
+ * row beneath it. Selecting the row switches the checkout to the yearly cycle
+ * (and reflects the lower per-month equivalent). CPF/CNPJ + phone are already
+ * on file from sign-up, so the button hands straight off to the Asaas hosted
+ * checkout for the chosen cycle.
  */
 export function BillingCycleChoice({
   pricing,
   secondary = false,
-  defaultCycle = "yearly",
-  cta = "Ir para o pagamento",
+  defaultCycle = "monthly",
+  cta = "Assinar Plano Pro",
 }: {
   pricing: BillingCyclePricing;
   secondary?: boolean;
@@ -46,60 +54,75 @@ export function BillingCycleChoice({
   async function onCheckout() {
     setError(null);
     setLoading(true);
-    const res = await createCheckout(cycle);
-    if (res.error || !res.url) {
-      setError(res.error ?? "Não foi possível continuar.");
+    try {
+      const res = await createCheckout(cycle);
+      if (res.error || !res.url) {
+        setError(res.error ?? "Não foi possível continuar.");
+        setLoading(false);
+        return;
+      }
+      // Hand off to the Asaas hosted checkout (Pix / boleto / cartão).
+      window.location.href = res.url;
+    } catch {
+      setError("Não foi possível continuar. Tente novamente.");
       setLoading(false);
-      return;
     }
-    // Hand off to the Asaas hosted checkout (Pix / boleto / cartão).
-    window.location.href = res.url;
   }
 
-  return (
-    <div className="flex flex-col gap-4">
-      <fieldset className="grid grid-cols-2 gap-1 rounded-[calc(var(--radius-input)+0.25rem)] border-0 bg-paper-sunk p-1">
-        <legend className="sr-only">Ciclo de cobrança</legend>
-        <Segment
-          selected={!annual}
-          onSelect={() => setCycle("monthly")}
-          label="Mensal"
-        />
-        <Segment
-          selected={annual}
-          onSelect={() => setCycle("yearly")}
-          label="Anual"
-          badge={`-${pricing.percentOff}%`}
-        />
-      </fieldset>
+  const headlineCents = annual
+    ? pricing.monthlyEquivCents
+    : pricing.monthlyCents;
 
-      <div className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="flex items-baseline gap-1">
-            <span className="nums text-[2rem] font-semibold leading-none tracking-[-0.02em] text-ink">
-              {brl(annual ? pricing.monthlyEquivCents : pricing.monthlyCents)}
-            </span>
-            <span className="text-[0.85rem] text-muted">/mês</span>
-          </p>
-          <p className="mt-1.5 text-[0.8rem] text-muted">
-            {annual ? (
-              <>
-                <span className="nums font-medium text-ink-soft">
-                  {brl(pricing.yearlyCents)}
-                </span>{" "}
-                por ano, cobrança única
-              </>
-            ) : (
-              "Cobrado todo mês. Cancele quando quiser."
-            )}
-          </p>
-        </div>
-        {annual && (
-          <span className="shrink-0 rounded-full border border-accent-line bg-accent-weak px-2.5 py-1 text-[0.72rem] font-semibold text-accent-deep">
-            Economize {brl(pricing.savingsCents)}
-          </span>
-        )}
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[1.35rem] font-semibold text-ink">R$</span>
+        <span className="nums text-[3rem] font-bold leading-none tracking-[-0.03em] text-ink">
+          {amount(headlineCents)}
+        </span>
+        <span className="text-[0.95rem] text-muted">/mês</span>
       </div>
+
+      <button
+        type="button"
+        aria-pressed={annual}
+        onClick={() => setCycle(annual ? "monthly" : "yearly")}
+        className={cn(
+          "flex items-center justify-between gap-3 rounded-[var(--radius-input)] border px-3.5 py-2.5 text-left transition-colors duration-150 ease-[var(--ease-out-quint)]",
+          annual
+            ? "border-accent bg-accent-weak/60"
+            : "border-line bg-paper-sunk hover:border-line-strong",
+        )}
+      >
+        <span className="flex items-center gap-2.5">
+          <span
+            className={cn(
+              "grid size-4 shrink-0 place-items-center rounded-full border transition-colors",
+              annual
+                ? "border-accent bg-accent text-accent-ink"
+                : "border-line-strong",
+            )}
+          >
+            {annual && <Tick />}
+          </span>
+          <span className="text-[0.85rem] text-ink-soft">
+            Cobrança anual ·{" "}
+            <span className="nums font-medium text-ink">
+              {brl(pricing.yearlyCents)} por ano
+            </span>
+          </span>
+        </span>
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2 py-0.5 text-[0.7rem] font-semibold transition-colors",
+            annual
+              ? "bg-accent text-accent-ink"
+              : "bg-accent-weak text-accent-deep",
+          )}
+        >
+          Economize {pricing.percentOff}%
+        </span>
+      </button>
 
       {error && (
         <div
@@ -120,49 +143,47 @@ export function BillingCycleChoice({
       >
         {cta}
       </Button>
-      <p className="text-center text-[0.78rem] text-muted">
+      <p className="flex items-center justify-center gap-1.5 text-center text-[0.78rem] text-muted">
+        <Lock />
         Pagamento seguro via Asaas · Pix, boleto ou cartão
       </p>
     </div>
   );
 }
 
-function Segment({
-  selected,
-  onSelect,
-  label,
-  badge,
-}: {
-  selected: boolean;
-  onSelect: () => void;
-  label: string;
-  badge?: string;
-}) {
+function Tick() {
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      className={cn(
-        "relative inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-input)] text-[0.85rem] font-medium transition-colors duration-150 ease-[var(--ease-out-quint)]",
-        selected
-          ? "bg-surface text-ink shadow-[0_1px_2px_oklch(0.2_0.03_265/0.1)]"
-          : "text-muted hover:text-ink-soft",
-      )}
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      className="size-2.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      {label}
-      {badge && (
-        <span
-          className={cn(
-            "rounded-full px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none transition-colors",
-            selected
-              ? "bg-accent text-accent-ink"
-              : "bg-accent-weak text-accent-deep",
-          )}
-        >
-          {badge}
-        </span>
-      )}
-    </button>
+      <title>Selecionado</title>
+      <path d="M3 8.5 6.5 12 13 4" />
+    </svg>
+  );
+}
+
+function Lock() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      className="size-3.5 text-muted"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <title>Seguro</title>
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+    </svg>
   );
 }

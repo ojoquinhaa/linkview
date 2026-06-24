@@ -12,10 +12,26 @@ import { QrButton } from "./qr-button";
 
 type LinkType = "url" | "whatsapp" | "instagram" | "phone" | "email";
 
-const TABS: { key: LinkType; label: string; icon: ReactNode }[] = [
+const TABS: {
+  key: LinkType;
+  label: string;
+  icon: ReactNode;
+  /** Brand color for the active icon (real brands only; others use accent). */
+  brand?: string;
+}[] = [
   { key: "url", label: "Link", icon: <LinkIcon /> },
-  { key: "whatsapp", label: "WhatsApp", icon: <WhatsAppIcon /> },
-  { key: "instagram", label: "Instagram", icon: <InstagramIcon /> },
+  {
+    key: "whatsapp",
+    label: "WhatsApp",
+    icon: <WhatsAppIcon />,
+    brand: "#25D366",
+  },
+  {
+    key: "instagram",
+    label: "Instagram",
+    icon: <InstagramIcon />,
+    brand: "#E1306C",
+  },
   { key: "phone", label: "Telefone", icon: <PhoneIcon /> },
   { key: "email", label: "E-mail", icon: <MailIcon /> },
 ];
@@ -176,21 +192,33 @@ export function CreateLink({ domain }: { domain: string }) {
                 role="tab"
                 aria-selected={active}
                 aria-controls="builder-panel"
+                aria-label={tab.label}
+                title={tab.label}
                 onClick={() => {
                   setType(tab.key);
                   setError(null);
                 }}
                 className={cn(
-                  "flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[0.72rem] font-medium transition-colors duration-150 ease-[var(--ease-out-quint)]",
+                  // Mobile: tall, icon-only tap targets. ≥sm: icon + label.
+                  "flex min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2.5 text-[0.72rem] font-medium transition-colors duration-150 ease-[var(--ease-out-quint)] sm:py-2",
                   active
                     ? "bg-surface text-ink shadow-[0_1px_2px_oklch(0.2_0.03_265/0.08)]"
                     : "text-muted hover:text-ink",
                 )}
               >
-                <span className={active ? "text-accent" : "text-current"}>
+                <span
+                  className={cn(
+                    // Big on phones, back to compact on desktop.
+                    "[&_svg]:size-[1.6rem] sm:[&_svg]:size-[1.125rem]",
+                    active && !tab.brand && "text-accent",
+                  )}
+                  style={active && tab.brand ? { color: tab.brand } : undefined}
+                >
                   {tab.icon}
                 </span>
-                <span className="w-full truncate text-center">{tab.label}</span>
+                <span className="hidden w-full truncate text-center sm:block">
+                  {tab.label}
+                </span>
               </button>
             );
           })}

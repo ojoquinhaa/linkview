@@ -62,7 +62,9 @@ export function redisConfigured(): boolean {
   return Boolean(process.env.REDIS_URL);
 }
 
-/** Hostname of the default system domain used for short links. */
+/** Hostname of the default system domain used for short links. `.trim()` guards
+ * against a trailing newline/space pasted into the env var on the host, which
+ * would otherwise never match the seeded `domains.hostname`. */
 export function systemDomain(): string {
-  return process.env.SYSTEM_DOMAIN ?? "lnkv.com.br";
+  return (process.env.SYSTEM_DOMAIN ?? "lnkv.com.br").trim();
 }
