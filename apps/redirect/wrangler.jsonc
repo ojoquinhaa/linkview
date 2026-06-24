@@ -13,7 +13,7 @@
 	],
 	// Bind your KV namespace id after `wrangler kv namespace create LINKS_KV`.
 	"kv_namespaces": [
-		{ "binding": "LINKS_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
+		{ "binding": "LINKS_KV", "id": "13ce9f93bf3245129a7a5997f253f363" }
 	],
 	"vars": {
 		// CLICK_INGEST_URL points to the web app endpoint /api/internal/clicks.
