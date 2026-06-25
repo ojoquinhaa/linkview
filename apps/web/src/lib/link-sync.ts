@@ -1,9 +1,73 @@
 import "server-only";
-import { getDb, links } from "@linkview/db";
-import type { KvLinkRecord, SplashConfig } from "@linkview/shared";
+import { getDb, links, pageLayouts } from "@linkview/db";
+import {
+  getPlan,
+  type KvLinkRecord,
+  type PlanKey,
+  resolveSplash,
+  type SplashConfig,
+} from "@linkview/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { getSystemDomain } from "@/server/domain";
 import { syncLinkToKv } from "./kv";
+
+/** Narrow the loosely-typed layout columns to the splash union types. */
+function toSplashLayout(row: {
+  logoUrl: string | null;
+  bgType: string;
+  bgColor: string;
+  bgImageUrl: string | null;
+  blur: number;
+  logoPosition: string;
+  accentColor: string;
+  textColor: string;
+  countdownSeconds: number;
+  showBranding: boolean;
+}) {
+  return {
+    ...row,
+    bgType: row.bgType === "image" ? ("image" as const) : ("color" as const),
+    logoPosition:
+      row.logoPosition === "top"
+        ? ("top" as const)
+        : row.logoPosition === "bottom"
+          ? ("bottom" as const)
+          : ("center" as const),
+  };
+}
+
+/**
+ * Resolve the interstitial config for a link's KV record. Free plans always get
+ * the forced branded splash; paid plans get their assigned layout (or null for a
+ * direct redirect). Mirrors the private resolver in `server/links.ts` so admin
+ * actions can rebuild a faithful KV record outside the owner-scoped flow.
+ */
+export async function resolveSplashForLink(
+  planKey: PlanKey,
+  pageLayoutId: string | null,
+): Promise<SplashConfig | null> {
+  if (!pageLayoutId || !getPlan(planKey).customSplashEnabled) {
+    return resolveSplash(planKey, null);
+  }
+  const db = getDb();
+  const [layout] = await db
+    .select({
+      logoUrl: pageLayouts.logoUrl,
+      bgType: pageLayouts.bgType,
+      bgColor: pageLayouts.bgColor,
+      bgImageUrl: pageLayouts.bgImageUrl,
+      blur: pageLayouts.blur,
+      logoPosition: pageLayouts.logoPosition,
+      accentColor: pageLayouts.accentColor,
+      textColor: pageLayouts.textColor,
+      countdownSeconds: pageLayouts.countdownSeconds,
+      showBranding: pageLayouts.showBranding,
+    })
+    .from(pageLayouts)
+    .where(and(eq(pageLayouts.id, pageLayoutId), isNull(pageLayouts.deletedAt)))
+    .limit(1);
+  return resolveSplash(planKey, layout ? toSplashLayout(layout) : null);
+}
 
 /** Columns needed to rebuild a link's operational KV record. */
 const ROW = {

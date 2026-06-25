@@ -47,6 +47,14 @@ const CustomersIcon = (p: IconProps) => (
   </Icon>
 );
 
+const LinksIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9.5 14.5 14.5 9.5" />
+    <path d="M11 7.5 12.4 6a3.6 3.6 0 0 1 5.1 5.1L16 12.6" />
+    <path d="M13 16.5 11.6 18a3.6 3.6 0 0 1-5.1-5.1L8 11.4" />
+  </Icon>
+);
+
 const BackIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M19 12H5" />
@@ -64,6 +72,7 @@ type NavItem = {
 export const ADMIN_NAV: NavItem[] = [
   { href: "/admin", label: "Visão geral", Icon: OverviewIcon, exact: true },
   { href: "/admin/clientes", label: "Clientes", Icon: CustomersIcon },
+  { href: "/admin/links", label: "Links", Icon: LinksIcon },
 ];
 
 function isActivePath(pathname: string, href: string, exact?: boolean) {
