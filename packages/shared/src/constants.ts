@@ -46,6 +46,20 @@ export const TRIAL_DURATION_DAYS = 7;
  * the documented retention period, then withdrawn from the product).
  */
 export const TRIAL_RETENTION_DAYS = 30;
+/**
+ * Grace window (days) after a paid subscription ends (canceled / expired /
+ * unpaid) during which the workspace's product data is retained in case the
+ * customer comes back, then soft-deleted. Fiscal/billing rows stay in the DB
+ * (legal retention); only the product-facing PII is withdrawn (LGPD art. 15-16).
+ */
+export const CANCEL_RETENTION_DAYS = 90;
+/**
+ * Tolerance window (days) a workspace keeps dashboard access after a payment
+ * goes overdue (`past_due`). Measured from the last paid period end. Past it,
+ * access is cut (subscription → `expired`, workspace → free), whether the
+ * provider has escalated or not — bounds "access without paying".
+ */
+export const PAST_DUE_GRACE_DAYS = 7;
 
 export const WORKSPACE_ROLES = ["owner", "admin", "member", "viewer"] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];

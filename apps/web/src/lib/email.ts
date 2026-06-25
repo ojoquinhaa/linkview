@@ -81,6 +81,98 @@ export async function sendResetPasswordEmail(args: {
   );
 }
 
+export async function sendPaymentOverdueEmail(args: {
+  to: string;
+  name?: string | null;
+  /** Hosted invoice URL (Asaas) so the customer can pay in one tap. */
+  invoiceUrl: string;
+}): Promise<void> {
+  const hi = args.name ? `Olá, ${args.name}. ` : "";
+  await send(
+    args.to,
+    "Sua fatura está em aberto — linkview",
+    layout({
+      heading: "Fatura em aberto",
+      intro: `${hi}Não identificamos o pagamento da sua assinatura Pro. Para manter seu acesso e seus links ativos, pague a fatura abaixo. Pix cai na hora.`,
+      buttonLabel: "Pagar fatura",
+      buttonUrl: args.invoiceUrl,
+      footnote:
+        "Se você já pagou, pode ignorar este e-mail — o sistema atualiza em alguns minutos.",
+    }),
+  );
+}
+
+const brl = (cents: number) =>
+  (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+
+const METHOD_LABEL: Record<string, string> = {
+  pix: "Pix",
+  boleto: "Boleto",
+  card: "Cartão de crédito",
+  unknown: "—",
+};
+
+export async function sendPaymentReceiptEmail(args: {
+  to: string;
+  name?: string | null;
+  /** Amount paid, in cents. */
+  amountCents: number;
+  /** Payment method, as mapped from Asaas billingType. */
+  method: "pix" | "boleto" | "card" | "unknown";
+  /** Next renewal date, or null when unknown. */
+  renewsAt: Date | null;
+  /** Asaas receipt / invoice URL. */
+  receiptUrl: string;
+}): Promise<void> {
+  const hi = args.name ? `Olá, ${args.name}. ` : "";
+  const renews = args.renewsAt
+    ? new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }).format(args.renewsAt)
+    : null;
+  const detail = `Valor: ${brl(args.amountCents)} · ${METHOD_LABEL[args.method] ?? "—"}${
+    renews ? ` · próxima renovação em ${renews}` : ""
+  }.`;
+  await send(
+    args.to,
+    "Pagamento confirmado — obrigado! · linkview",
+    layout({
+      heading: "Pagamento confirmado 🎉",
+      intro: `${hi}Recebemos seu pagamento e seu plano Pro está ativo. Obrigado por usar o linkview! ${detail}`,
+      buttonLabel: "Ver recibo",
+      buttonUrl: args.receiptUrl,
+      footnote:
+        "Guarde este e-mail como comprovante. O recibo oficial está no botão acima.",
+    }),
+  );
+}
+
+export async function sendCardChargeFailedEmail(args: {
+  to: string;
+  name?: string | null;
+  /** Hosted invoice URL (Asaas) to pay / update the card in one tap. */
+  invoiceUrl: string;
+}): Promise<void> {
+  const hi = args.name ? `Olá, ${args.name}. ` : "";
+  await send(
+    args.to,
+    "Não conseguimos cobrar seu cartão — linkview",
+    layout({
+      heading: "Falha na cobrança do cartão",
+      intro: `${hi}A cobrança automática da sua assinatura Pro foi recusada (cartão expirado, sem limite ou bloqueado). Atualize o cartão pelo botão abaixo para não perder o acesso.`,
+      buttonLabel: "Atualizar cartão",
+      buttonUrl: args.invoiceUrl,
+      footnote:
+        "Vamos tentar de novo automaticamente. Se preferir, pague pelo link acima — Pix também serve.",
+    }),
+  );
+}
+
 export async function sendVerificationEmail(args: {
   to: string;
   name?: string | null;

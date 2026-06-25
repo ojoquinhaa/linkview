@@ -47,6 +47,8 @@ export function BillingCycleChoice({
   cta?: string;
 }) {
   const [cycle, setCycle] = useState<BillingCycle>(defaultCycle);
+  // Default to card auto-renewal: no missed-payment lapses, no manual invoice.
+  const [autopay, setAutopay] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const annual = cycle === "yearly";
@@ -55,7 +57,7 @@ export function BillingCycleChoice({
     setError(null);
     setLoading(true);
     try {
-      const res = await createCheckout(cycle);
+      const res = await createCheckout(cycle, autopay);
       if (res.error || !res.url) {
         setError(res.error ?? "Não foi possível continuar.");
         setLoading(false);
@@ -124,6 +126,22 @@ export function BillingCycleChoice({
         </span>
       </button>
 
+      {/* Payment method: card auto-renews; Pix/boleto is paid each cycle. */}
+      <div className="grid grid-cols-2 gap-2">
+        <MethodOption
+          selected={autopay}
+          onClick={() => setAutopay(true)}
+          title="Cartão"
+          subtitle="Renovação automática"
+        />
+        <MethodOption
+          selected={!autopay}
+          onClick={() => setAutopay(false)}
+          title="Pix ou boleto"
+          subtitle="Pago a cada ciclo"
+        />
+      </div>
+
       {error && (
         <div
           role="alert"
@@ -145,9 +163,40 @@ export function BillingCycleChoice({
       </Button>
       <p className="flex items-center justify-center gap-1.5 text-center text-[0.78rem] text-muted">
         <Lock />
-        Pagamento seguro via Asaas · Pix, boleto ou cartão
+        {autopay
+          ? "Cartão seguro via Asaas · cancele quando quiser"
+          : "Pagamento seguro via Asaas · Pix ou boleto"}
       </p>
     </div>
+  );
+}
+
+function MethodOption({
+  selected,
+  onClick,
+  title,
+  subtitle,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-start rounded-[var(--radius-input)] border px-3.5 py-2.5 text-left transition-colors duration-150 ease-[var(--ease-out-quint)]",
+        selected
+          ? "border-accent bg-accent-weak/60"
+          : "border-line bg-paper-sunk hover:border-line-strong",
+      )}
+    >
+      <span className="text-[0.86rem] font-medium text-ink">{title}</span>
+      <span className="text-[0.74rem] text-muted">{subtitle}</span>
+    </button>
   );
 }
 

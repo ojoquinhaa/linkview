@@ -60,6 +60,9 @@ export const subscriptions = pgTable(
     currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
     canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    /** True when the workspace pays by recurring credit card (Asaas auto-charges
+     * each cycle). False = manual Pix/boleto/card invoice every renewal. */
+    autopay: boolean("autopay").notNull().default(false),
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
     ...timestamps,
   },

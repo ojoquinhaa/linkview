@@ -92,14 +92,19 @@ export function createSubscription(input: {
   externalReference?: string;
   /** Charge cadence at Asaas. Defaults to monthly. */
   cycle?: "MONTHLY" | "YEARLY";
+  /**
+   * Charge method. `UNDEFINED` lets the payer pick Pix / boleto / card on the
+   * hosted page (manual payment each cycle). `CREDIT_CARD` makes the hosted page
+   * capture a card on the first charge and auto-charges every renewal after.
+   */
+  billingType?: "UNDEFINED" | "CREDIT_CARD";
   /** Where Asaas returns the payer after a successful payment. */
   callback?: { successUrl: string; autoRedirect?: boolean };
 }): Promise<AsaasSubscription> {
-  const { cycle = "MONTHLY", ...rest } = input;
+  const { cycle = "MONTHLY", billingType = "UNDEFINED", ...rest } = input;
   return asaas<AsaasSubscription>("/subscriptions", {
     method: "POST",
-    // UNDEFINED lets the payer pick Pix / boleto / card on the hosted page.
-    json: { ...rest, billingType: "UNDEFINED", cycle },
+    json: { ...rest, billingType, cycle },
   });
 }
 

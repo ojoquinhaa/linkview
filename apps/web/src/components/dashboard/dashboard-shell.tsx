@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { Wordmark } from "@/components/wordmark";
 import { cn } from "@/lib/cn";
+import { PastDueBanner } from "./past-due-banner";
 import { NavLinks, SupportLink, WorkspaceFooter } from "./sidebar";
 import { TopBar } from "./topbar";
 import { TrialBanner } from "./trial-banner";
@@ -16,6 +17,7 @@ export function DashboardShell({
   roleLabel,
   isAdmin,
   trialDaysLeft,
+  pastDueDaysLeft,
   children,
 }: {
   user: { name: string; email: string };
@@ -25,6 +27,8 @@ export function DashboardShell({
   isAdmin?: boolean;
   /** Days left on the free trial, or null when not trialing. */
   trialDaysLeft?: number | null;
+  /** Days left in the past-due tolerance window, or null when not past due. */
+  pastDueDaysLeft?: number | null;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -77,6 +81,9 @@ export function DashboardShell({
           menuId={drawerId}
         />
         {trialDaysLeft != null && <TrialBanner daysLeft={trialDaysLeft} />}
+        {pastDueDaysLeft != null && (
+          <PastDueBanner daysLeft={pastDueDaysLeft} />
+        )}
         <main className="min-w-0 flex-1">{children}</main>
       </div>
 

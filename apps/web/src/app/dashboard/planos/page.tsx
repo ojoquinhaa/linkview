@@ -186,6 +186,7 @@ export default async function PlanosPage() {
           <PlanActions
             mode={onTrial ? "trial" : "active"}
             canceling={sub.cancelAtPeriodEnd}
+            autopay={sub.autopay}
             trialDays={TRIAL_DURATION_DAYS}
             pricing={pricing}
             currentCycle={annual ? "yearly" : "monthly"}

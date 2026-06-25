@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   cancelSubscriptionAction,
+  cardUpdateUrlAction,
   switchBillingCycleAction,
 } from "@/server/billing/actions";
 
@@ -28,6 +29,7 @@ const brl = (cents: number) =>
 export function PlanActions({
   mode,
   canceling,
+  autopay,
   trialDays,
   pricing,
   currentCycle,
@@ -35,6 +37,7 @@ export function PlanActions({
 }: {
   mode: Mode;
   canceling: boolean;
+  autopay: boolean;
   trialDays: number;
   pricing: BillingCyclePricing;
   currentCycle: BillingCycle;
@@ -60,6 +63,7 @@ export function PlanActions({
 
   return (
     <>
+      <PaymentMethodRow autopay={autopay} nextChargeLabel={nextChargeLabel} />
       <CycleSwitch
         currentCycle={currentCycle}
         pricing={pricing}
@@ -67,6 +71,86 @@ export function PlanActions({
       />
       <CancelRow />
     </>
+  );
+}
+
+/**
+ * Payment-method panel for an active subscriber. Card autopay can refresh the
+ * card on file by paying the open charge on the Asaas hosted page; manual
+ * (Pix/boleto) subscribers just see how renewal works.
+ */
+function PaymentMethodRow({
+  autopay,
+  nextChargeLabel,
+}: {
+  autopay: boolean;
+  nextChargeLabel: string | null;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onUpdateCard() {
+    setError(null);
+    setNote(null);
+    setLoading(true);
+    const res = await cardUpdateUrlAction();
+    if (res.error) {
+      setError(res.error);
+      setLoading(false);
+      return;
+    }
+    if (res.url) {
+      window.location.href = res.url;
+      return;
+    }
+    setNote(
+      "Nenhuma cobrança em aberto agora. Você poderá trocar o cartão na próxima fatura.",
+    );
+    setLoading(false);
+  }
+
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)] sm:p-7">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1.5">
+        <div className="min-w-0">
+          <h3 className="font-display text-[1.1rem] font-semibold tracking-[-0.01em] text-ink">
+            Forma de pagamento
+          </h3>
+          <p className="mt-1.5 text-[0.88rem] text-muted">
+            {autopay
+              ? `Cartão de crédito · renovação automática${nextChargeLabel ? ` em ${nextChargeLabel}` : ""}.`
+              : `Pix ou boleto · você paga a cada ciclo${nextChargeLabel ? `, próxima em ${nextChargeLabel}` : ""}.`}
+          </p>
+        </div>
+      </div>
+
+      {error && (
+        <div
+          role="alert"
+          className="mt-4 rounded-[var(--radius-input)] border border-danger/30 bg-danger-weak px-3.5 py-2.5 text-[0.85rem] text-danger"
+        >
+          {error}
+        </div>
+      )}
+      {note && (
+        <p className="mt-4 rounded-[var(--radius-input)] border border-line bg-paper-sunk px-3.5 py-2.5 text-[0.85rem] text-ink-soft">
+          {note}
+        </p>
+      )}
+
+      {autopay && (
+        <Button
+          type="button"
+          variant="secondary"
+          loading={loading}
+          onClick={onUpdateCard}
+          className="mt-5 w-full sm:w-auto"
+        >
+          Atualizar cartão
+        </Button>
+      )}
+    </section>
   );
 }
 

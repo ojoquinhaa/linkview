@@ -7,6 +7,7 @@ import { getActiveWorkspace } from "@/server/workspace";
 import {
   cancelWorkspaceSubscription,
   changeSubscriptionCycle,
+  getOpenInvoiceUrl,
   getWorkspaceSubscription,
   reconcilePendingSubscription,
   startSubscription,
@@ -26,6 +27,8 @@ export interface CheckoutActionResult {
  */
 export async function createCheckout(
   cycle: BillingCycle = "monthly",
+  /** True = recurring credit-card auto-charge; false = manual Pix/boleto/card. */
+  autopay = false,
 ): Promise<CheckoutActionResult> {
   try {
     const session = await requireSession();
@@ -52,6 +55,7 @@ export async function createCheckout(
         phone: profile.phone || undefined,
       },
       cycle,
+      autopay,
     );
     return { url: invoiceUrl };
   } catch (err) {
@@ -66,6 +70,31 @@ export async function createCheckout(
 /** Start the 7-day Pro trial for the signed-in user's workspace. */
 export async function startTrialAction(): Promise<StartTrialResult> {
   return startTrial();
+}
+
+export interface CardUpdateResult {
+  /** Hosted invoice URL to pay with a new card, or null when nothing is open. */
+  url: string | null;
+  error?: string;
+}
+
+/**
+ * Hosted URL the customer opens to pay an open charge with a new card — Asaas
+ * then reuses that card for future auto-renewals. Returns `url: null` when there
+ * is no open charge (nothing to pay right now), so the UI can explain that.
+ */
+export async function cardUpdateUrlAction(): Promise<CardUpdateResult> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace)
+    return { url: null, error: "Sessão expirada. Entre novamente." };
+
+  try {
+    return { url: await getOpenInvoiceUrl(workspace.id) };
+  } catch (err) {
+    console.error("billing.card_update_url_failed", err);
+    return { url: null, error: "Não foi possível abrir agora. Tente de novo." };
+  }
 }
 
 export interface ActivationResult {

@@ -108,6 +108,12 @@ export async function startSubscription(
   planKey: PlanKey,
   input: CheckoutInput,
   cycle: BillingCycle = "monthly",
+  /**
+   * When true, the hosted checkout captures a credit card and Asaas auto-charges
+   * every renewal. When false (default), the payer picks Pix / boleto / card and
+   * pays each cycle manually.
+   */
+  autopay = false,
 ): Promise<CheckoutResult> {
   const plan = getPlan(planKey);
   const priceCents = getCyclePriceCents(planKey, cycle);
@@ -125,6 +131,7 @@ export async function startSubscription(
     description: `linkview ${plan.name} (${cycle === "yearly" ? "anual" : "mensal"})`,
     externalReference: workspaceId,
     cycle: cycle === "yearly" ? "YEARLY" : "MONTHLY",
+    billingType: autopay ? "CREDIT_CARD" : "UNDEFINED",
     callback: {
       successUrl: `${appUrl()}/assinar/confirmando`,
       autoRedirect: true,
@@ -146,6 +153,7 @@ export async function startSubscription(
         providerSubscriptionId: sub.id,
         status: "pending",
         billingCycle: cycle,
+        autopay,
         cancelAtPeriodEnd: false,
         canceledAt: null,
       })
@@ -158,6 +166,7 @@ export async function startSubscription(
       providerSubscriptionId: sub.id,
       status: "pending",
       billingCycle: cycle,
+      autopay,
     });
   }
 
@@ -176,6 +185,7 @@ export interface WorkspaceSubscription {
   providerSubscriptionId: string | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  autopay: boolean;
 }
 
 /** Current subscription + plan for a workspace, or null if never subscribed. */
@@ -191,6 +201,7 @@ export async function getWorkspaceSubscription(
       providerSubscriptionId: subscriptions.providerSubscriptionId,
       currentPeriodEnd: subscriptions.currentPeriodEnd,
       cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
+      autopay: subscriptions.autopay,
     })
     .from(subscriptions)
     .innerJoin(plans, eq(subscriptions.planId, plans.id))
@@ -322,7 +333,14 @@ export async function changeSubscriptionCycle(
     .where(eq(subscriptions.id, row.id));
 }
 
-/** Cancel at Asaas and mark the local subscription canceled. */
+/**
+ * Cancel at Asaas (stops all future charges) but keep the local subscription
+ * `active` until the end of the period the user already paid for. We only flag
+ * `cancelAtPeriodEnd`; the workspace keeps Pro access and the cron maintenance
+ * job demotes it to free once `currentPeriodEnd` passes. The Asaas DELETE fires
+ * a `SUBSCRIPTION_DELETED` webhook, which the handler ignores while the grace
+ * period is still open (see api/billing/webhook).
+ */
 export async function cancelWorkspaceSubscription(
   workspaceId: string,
 ): Promise<void> {
@@ -340,6 +358,50 @@ export async function cancelWorkspaceSubscription(
   await asaas.cancelSubscription(row.providerSubscriptionId);
   await db
     .update(subscriptions)
-    .set({ status: "canceled", canceledAt: new Date() })
+    .set({ cancelAtPeriodEnd: true, canceledAt: new Date() })
     .where(eq(subscriptions.id, row.id));
+}
+
+/** Asaas payment statuses that are still awaiting payment. */
+const OPEN_PAYMENT_STATUSES = new Set([
+  "OVERDUE",
+  "PENDING",
+  "AWAITING_RISK_ANALYSIS",
+]);
+
+/**
+ * Hosted invoice URL of the workspace's earliest unpaid charge, or null when
+ * nothing is open. Paying it on the Asaas page lets a card-autopay customer
+ * settle an overdue charge and swap the card on file (the new card is reused for
+ * future renewals). Overdue charges take priority over upcoming ones.
+ */
+export async function getOpenInvoiceUrl(
+  workspaceId: string,
+): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ providerSubscriptionId: subscriptions.providerSubscriptionId })
+    .from(subscriptions)
+    .where(eq(subscriptions.workspaceId, workspaceId))
+    .limit(1);
+  if (!row?.providerSubscriptionId) return null;
+
+  let payments: Awaited<ReturnType<typeof asaas.getSubscriptionPayments>>;
+  try {
+    payments = await asaas.getSubscriptionPayments(row.providerSubscriptionId);
+  } catch (err) {
+    console.error("billing.open_invoice_fetch_failed", err);
+    return null;
+  }
+
+  const open = payments
+    .filter((p) => OPEN_PAYMENT_STATUSES.has(p.status) && p.invoiceUrl)
+    .sort((a, b) => {
+      // Overdue first, then by soonest due date.
+      const ao = a.status === "OVERDUE" ? 0 : 1;
+      const bo = b.status === "OVERDUE" ? 0 : 1;
+      if (ao !== bo) return ao - bo;
+      return (a.dueDate ?? "").localeCompare(b.dueDate ?? "");
+    });
+  return open[0]?.invoiceUrl ?? null;
 }

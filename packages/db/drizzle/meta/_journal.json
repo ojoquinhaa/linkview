@@ -43,6 +43,13 @@
       "when": 1782313632567,
       "tag": "0005_bitter_the_call",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782410756124,
+      "tag": "0006_flaky_la_nuit",
+      "breakpoints": true
     }
   ]
 }
