@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { toggleLinkAction } from "@/server/links";
 import { DeleteLinkModal } from "./delete-link-modal";
 import { type EditableLink, EditLinkModal } from "./edit-link-modal";
+import { PauseLinkModal } from "./pause-link-modal";
 
 function Glyph({
   className,
@@ -83,6 +84,7 @@ export function LinkActions({
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [pauseOpen, setPauseOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -103,10 +105,16 @@ export function LinkActions({
     };
   }, [menuOpen]);
 
+  // Pausing is gated behind a confirmation modal (it breaks the live link);
+  // re-activating is harmless, so it fires immediately.
   const togglePause = () => {
     setMenuOpen(false);
+    if (link.isActive) {
+      setPauseOpen(true);
+      return;
+    }
     startTransition(async () => {
-      await toggleLinkAction(link.id, !link.isActive);
+      await toggleLinkAction(link.id, true);
       router.refresh();
     });
   };
@@ -133,6 +141,15 @@ export function LinkActions({
           link={link}
           domain={domain}
           onSaved={handleSaved}
+        />
+      )}
+      {canEdit && (
+        <PauseLinkModal
+          open={pauseOpen}
+          onClose={() => setPauseOpen(false)}
+          id={link.id}
+          label={`${domain}/${link.slug}`}
+          onPaused={() => router.refresh()}
         />
       )}
       {canDelete && (
