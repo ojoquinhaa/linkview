@@ -122,6 +122,13 @@ function PaymentMethodRow({
               ? `Cartão de crédito · renovação automática${nextChargeLabel ? ` em ${nextChargeLabel}` : ""}.`
               : `Pix ou boleto · você paga a cada ciclo${nextChargeLabel ? `, próxima em ${nextChargeLabel}` : ""}.`}
           </p>
+          {autopay && (
+            <p className="mt-1.5 text-[0.82rem] text-muted">
+              Para trocar o cartão, pague a próxima fatura com o novo cartão —
+              ele passa a valer para as renovações seguintes. Sem fatura em
+              aberto, a troca fica disponível na próxima cobrança.
+            </p>
+          )}
         </div>
       </div>
 
@@ -185,6 +192,11 @@ function CycleSwitch({
       setLoading(false);
       return;
     }
+    // router.refresh() re-renders the server tree but keeps this client
+    // component mounted, so its state survives. Reset it explicitly or the
+    // confirm button would spin forever even though the switch succeeded.
+    setConfirming(false);
+    setLoading(false);
     router.refresh();
   }
 

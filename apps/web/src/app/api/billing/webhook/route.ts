@@ -14,8 +14,11 @@ import {
   emailConfigured,
   sendCardChargeFailedEmail,
   sendPaymentOverdueEmail,
-  sendPaymentReceiptEmail,
 } from "@/lib/email";
+import {
+  mapBillingMethod,
+  sendReceiptEmailOnce,
+} from "@/server/billing/subscription";
 
 /**
  * Asaas billing webhook (§ billing). Authenticated by the shared
@@ -65,22 +68,6 @@ function addYear(from: Date): Date {
 /** Next renewal date for a paid period that just started, by billing cadence. */
 function periodEnd(from: Date, cycle: string): Date {
   return cycle === "yearly" ? addYear(from) : addMonth(from);
-}
-
-/** Asaas billingType → the receipt email's method label key. */
-function mapMethod(
-  billingType: string | undefined,
-): "pix" | "boleto" | "card" | "unknown" {
-  switch (billingType) {
-    case "PIX":
-      return "pix";
-    case "BOLETO":
-      return "boleto";
-    case "CREDIT_CARD":
-      return "card";
-    default:
-      return "unknown";
-  }
 }
 
 /** Public app origin, trimmed (a CRLF in the env var would break links). */
@@ -287,34 +274,17 @@ export async function POST(request: Request) {
           ),
         );
 
-      // Thank-you + receipt. Best-effort, never fails the webhook.
-      if (emailConfigured()) {
-        try {
-          const [customer] = await db
-            .select({
-              email: billingCustomers.email,
-              name: billingCustomers.name,
-            })
-            .from(billingCustomers)
-            .where(eq(billingCustomers.workspaceId, sub.workspaceId))
-            .limit(1);
-          if (customer?.email) {
-            await sendPaymentReceiptEmail({
-              to: customer.email,
-              name: customer.name,
-              amountCents: Math.round((payload.payment?.value ?? 0) * 100),
-              method: mapMethod(payload.payment?.billingType),
-              renewsAt,
-              receiptUrl:
-                payload.payment?.transactionReceiptUrl ??
-                payload.payment?.invoiceUrl ??
-                `${appUrl()}/dashboard/pagamentos`,
-            });
-          }
-        } catch (err) {
-          console.error("billing.receipt_email_failed", err);
-        }
-      }
+      // Thank-you + receipt. Shared once-per-period sender so the webhook and
+      // the "Já paguei" reconcile poll never double-email. Best-effort.
+      await sendReceiptEmailOnce(sub.workspaceId, {
+        amountCents: Math.round((payload.payment?.value ?? 0) * 100),
+        method: mapBillingMethod(payload.payment?.billingType),
+        renewsAt,
+        receiptUrl:
+          payload.payment?.transactionReceiptUrl ??
+          payload.payment?.invoiceUrl ??
+          `${appUrl()}/dashboard/pagamentos`,
+      });
     } else if (event === "PAYMENT_OVERDUE") {
       await db
         .update(subscriptions)

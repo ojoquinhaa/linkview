@@ -14,11 +14,95 @@ import {
   getPlan,
   type PlanKey,
 } from "@linkview/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { emailConfigured, sendPaymentReceiptEmail } from "@/lib/email";
 import * as asaas from "./asaas";
 
 /** Asaas payment statuses that mean the money cleared. */
 const PAID_STATUSES = new Set(["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"]);
+
+/** Asaas billingType → the receipt email's method label key. */
+export function mapBillingMethod(
+  billingType: string | undefined,
+): "pix" | "boleto" | "card" | "unknown" {
+  switch (billingType) {
+    case "PIX":
+      return "pix";
+    case "BOLETO":
+      return "boleto";
+    case "CREDIT_CARD":
+      return "card";
+    default:
+      return "unknown";
+  }
+}
+
+export interface PaymentReceipt {
+  amountCents: number;
+  method: "pix" | "boleto" | "card" | "unknown";
+  renewsAt: Date | null;
+  receiptUrl: string;
+}
+
+/**
+ * Send the "payment confirmed — thank you" receipt at most once per paid
+ * period. Both the Asaas webhook and the "Já paguei" reconcile poll activate a
+ * subscription, so without this guard a sandbox (no webhook) sends nothing while
+ * a configured webhook plus a poll could send twice. We claim the send with an
+ * atomic conditional update: only fire when no receipt has gone out for the
+ * *current* period (`receiptSentAt` null or older than `currentPeriodStart`), so
+ * a renewal still emails while the CONFIRMED+RECEIVED pair for one charge does
+ * not. Best-effort: releases the claim if the send fails so a later trigger can
+ * retry, and never throws (a failed email must not fail billing).
+ */
+export async function sendReceiptEmailOnce(
+  workspaceId: string,
+  receipt: PaymentReceipt,
+): Promise<void> {
+  if (!emailConfigured()) return;
+  const db = getDb();
+
+  // Claim atomically: flip the stamp only when this period hasn't been emailed.
+  const claimed = await db
+    .update(subscriptions)
+    .set({ receiptSentAt: new Date() })
+    .where(
+      and(
+        eq(subscriptions.workspaceId, workspaceId),
+        sql`(${subscriptions.receiptSentAt} is null or ${subscriptions.receiptSentAt} < ${subscriptions.currentPeriodStart})`,
+      ),
+    )
+    .returning({ id: subscriptions.id });
+  if (claimed.length === 0) return; // already sent for this period
+
+  try {
+    const [customer] = await db
+      .select({ email: billingCustomers.email, name: billingCustomers.name })
+      .from(billingCustomers)
+      .where(eq(billingCustomers.workspaceId, workspaceId))
+      .limit(1);
+    if (!customer?.email) {
+      // No address yet — release the claim so a later attempt can still deliver.
+      await db
+        .update(subscriptions)
+        .set({ receiptSentAt: null })
+        .where(eq(subscriptions.id, claimed[0].id));
+      return;
+    }
+    await sendPaymentReceiptEmail({
+      to: customer.email,
+      name: customer.name,
+      ...receipt,
+    });
+  } catch (err) {
+    console.error("billing.receipt_email_failed", err);
+    // Release the claim so the next confirmed event / poll retries the send.
+    await db
+      .update(subscriptions)
+      .set({ receiptSentAt: null })
+      .where(eq(subscriptions.id, claimed[0].id));
+  }
+}
 
 function addMonth(from: Date): Date {
   const d = new Date(from);
@@ -281,6 +365,16 @@ export async function reconcilePendingSubscription(
         isNull(trialRedemptions.convertedAt),
       ),
     );
+
+  // Thank-you + receipt. The webhook normally sends this, but it often isn't
+  // delivered in sandbox — so the poll that activates here must send it too. The
+  // once-per-period guard keeps the two paths from double-emailing.
+  await sendReceiptEmailOnce(workspaceId, {
+    amountCents: Math.round((paid.value ?? 0) * 100),
+    method: mapBillingMethod(paid.billingType),
+    renewsAt: currentPeriodEnd,
+    receiptUrl: paid.invoiceUrl ?? `${appUrl()}/dashboard/pagamentos`,
+  });
 
   return true;
 }

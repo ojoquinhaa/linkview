@@ -5,11 +5,16 @@ import "server-only";
 const DEFAULT_URL = "https://api.asaas.com/v3";
 
 function asaasEnv() {
-  const apiKey = process.env.ASAAS_API_KEY;
+  const apiKey = process.env.ASAAS_API_KEY?.trim();
   if (!apiKey) throw new Error("Missing env var: ASAAS_API_KEY");
   return {
     apiKey,
-    baseUrl: (process.env.ASAAS_API_URL ?? DEFAULT_URL).replace(/\/$/, ""),
+    // trim() strips trailing whitespace/CRLF baked into the env var (e.g. from
+    // `vercel env add` piped on Windows); without it the CRLF lands mid-URL and
+    // breaks every Asaas request.
+    baseUrl: (process.env.ASAAS_API_URL ?? DEFAULT_URL)
+      .trim()
+      .replace(/\/$/, ""),
   };
 }
 
@@ -27,16 +32,27 @@ async function asaas<T>(
   init?: { method?: string; json?: unknown },
 ): Promise<T> {
   const { apiKey, baseUrl } = asaasEnv();
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: init?.method ?? "GET",
-    headers: {
-      access_token: apiKey,
-      "content-type": "application/json",
-      accept: "application/json",
-    },
-    body: init?.json ? JSON.stringify(init.json) : undefined,
-    cache: "no-store",
-  });
+  // Cap the request so a slow/hung Asaas call surfaces as an error instead of
+  // leaving the caller's UI spinner stuck forever.
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      method: init?.method ?? "GET",
+      headers: {
+        access_token: apiKey,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: init?.json ? JSON.stringify(init.json) : undefined,
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new Error("Asaas não respondeu a tempo. Tente novamente.");
+    }
+    throw err;
+  }
   const text = await res.text();
   const data = (text ? JSON.parse(text) : {}) as T & AsaasError;
   if (!res.ok) {

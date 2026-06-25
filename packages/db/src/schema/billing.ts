@@ -64,6 +64,10 @@ export const subscriptions = pgTable(
      * each cycle). False = manual Pix/boleto/card invoice every renewal. */
     autopay: boolean("autopay").notNull().default(false),
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    /** Stamped the first time the payment-confirmed receipt email is sent for
+     * the current paid period. Dedup guard so the webhook and the "Já paguei"
+     * reconcile poll don't both email the customer (set atomically). */
+    receiptSentAt: timestamp("receipt_sent_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [index("subscriptions_workspace_idx").on(t.workspaceId)],
