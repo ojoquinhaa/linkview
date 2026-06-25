@@ -20,7 +20,7 @@ export default async function SupportPage() {
   return (
     <div className="flex flex-col">
       <div className="border-b border-line bg-paper px-6 py-6 sm:px-8">
-        <div className="min-w-0">
+        <div className="mx-auto w-full min-w-0 max-w-5xl">
           <h1 className="font-display text-[1.5rem] font-semibold tracking-[-0.02em] text-ink">
             Suporte
           </h1>
@@ -31,7 +31,7 @@ export default async function SupportPage() {
         </div>
       </div>
 
-      <div className="px-6 py-7 sm:px-8">
+      <div className="mx-auto w-full min-w-0 max-w-5xl px-6 py-7 sm:px-8">
         <SupportComposer
           name={session.user.name ?? ""}
           email={session.user.email}

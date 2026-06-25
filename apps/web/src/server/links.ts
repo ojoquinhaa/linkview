@@ -3,6 +3,7 @@ import { can } from "@linkview/auth/permissions";
 import { getDb, links, pageLayouts } from "@linkview/db";
 import {
   type CreateLinkInput,
+  canonicalizeDestinationUrl,
   createLinkSchema,
   generateSlug,
   getPlan,
@@ -167,6 +168,9 @@ export async function createLinkAction(
     };
   }
   const data = parsed.data;
+  // Percent-encode any raw non-ASCII (e.g. emoji) so it survives the redirect
+  // Location header and KV/DB round-trips intact.
+  const destinationUrl = canonicalizeDestinationUrl(data.destinationUrl);
 
   const session = await requireSession();
   const workspace = await getActiveWorkspace(session.user.id);
@@ -222,7 +226,7 @@ export async function createLinkAction(
       domainId: domain.id,
       campaignId: data.campaignId,
       slug,
-      destinationUrl: data.destinationUrl,
+      destinationUrl,
       title: data.title,
       description: data.description,
       expiresAt: data.expiresAt,
@@ -242,7 +246,7 @@ export async function createLinkAction(
   const record = toKvRecord({
     linkId: created.id,
     workspaceId: workspace.id,
-    destinationUrl: data.destinationUrl,
+    destinationUrl,
     active: true,
     expiresAt: data.expiresAt ?? null,
     passwordProtected: Boolean(passwordHash),
@@ -362,7 +366,9 @@ export async function updateLinkAction(
     }
   }
 
-  const nextDestination = data.destinationUrl ?? existing.destinationUrl;
+  const nextDestination = canonicalizeDestinationUrl(
+    data.destinationUrl ?? existing.destinationUrl,
+  );
   const nextActive = data.isActive ?? existing.isActive;
   const nextExpires =
     data.expiresAt !== undefined ? data.expiresAt : existing.expiresAt;

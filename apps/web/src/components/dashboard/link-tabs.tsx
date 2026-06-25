@@ -114,7 +114,7 @@ export function LinkTabs({ slug }: { slug: string }) {
   return (
     <nav
       ref={ref}
-      className="-mb-px flex gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="flex flex-col gap-0.5 sm:-mb-px sm:flex-row sm:gap-1 sm:overflow-x-auto sm:overflow-y-hidden sm:[scrollbar-width:none] sm:[&::-webkit-scrollbar]:hidden"
       style={{ WebkitMaskImage: mask, maskImage: mask }}
     >
       {tabs.map((t) => {
@@ -127,8 +127,9 @@ export function LinkTabs({ slug }: { slug: string }) {
             href={t.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-[0.875rem] font-medium transition-colors",
+              "relative inline-flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[0.875rem] font-medium transition-colors sm:w-auto sm:gap-1.5 sm:whitespace-nowrap sm:rounded-none",
               active ? "text-accent-deep" : "text-muted hover:text-ink",
+              active && "bg-accent-weak sm:bg-transparent",
             )}
           >
             <svg
@@ -145,9 +146,11 @@ export function LinkTabs({ slug }: { slug: string }) {
               <t.Icon />
             </svg>
             {t.label}
+            {/* Mobile: left accent bar. Desktop: bottom underline. */}
             <span
               className={cn(
-                "absolute inset-x-2 -bottom-px h-0.5 rounded-full transition-colors duration-150 ease-[var(--ease-out-quint)]",
+                "absolute rounded-full transition-colors duration-150 ease-[var(--ease-out-quint)]",
+                "left-0 top-1.5 bottom-1.5 w-[3px] sm:inset-x-2 sm:left-2 sm:right-2 sm:top-auto sm:bottom-[-1px] sm:h-0.5 sm:w-auto",
                 active ? "bg-accent" : "bg-transparent",
               )}
             />

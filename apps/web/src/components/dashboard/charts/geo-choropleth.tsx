@@ -16,6 +16,18 @@ interface GeoJson {
   features: { properties: { name: string }; geometry: unknown }[];
 }
 
+// Explicit indigo/blue ramp in hex. The design tokens are OKLCH; some mobile
+// browsers (older iOS Safari) can't paint `oklch(...)` to a canvas and fall back
+// to black, so the choropleth uses static hex blues — weaker→stronger — instead
+// of the resolved theme tokens. Keeps the map colored on every device.
+const MAP_COLORS = {
+  noData: "#eceff5", // states/countries with zero clicks
+  border: "#ffffff",
+  ramp: ["#c7d4ef", "#5575c4", "#2b4a9c"], // weak → mid → strong
+  emphasis: "#1f3877", // hover
+  legendText: "#8a93a3",
+} as const;
+
 const registered = new Set<string>();
 /** Register a map under `name` exactly once. */
 export function ensureMap(name: string, geo: GeoJson) {
@@ -121,8 +133,8 @@ export function GeoChoropleth({
         left: 8,
         bottom: 12,
         text: ["mais", "menos"],
-        textStyle: { color: theme.muted, fontSize: 10.5 },
-        inRange: { color: [theme.accentWeak, theme.accent, theme.accentDeep] },
+        textStyle: { color: MAP_COLORS.legendText, fontSize: 10.5 },
+        inRange: { color: [...MAP_COLORS.ramp] },
       },
       series: [
         {
@@ -133,12 +145,12 @@ export function GeoChoropleth({
           center: frame?.center,
           zoom: frame?.zoom ?? baseZoom,
           itemStyle: {
-            areaColor: theme.paperSunk,
-            borderColor: theme.line,
+            areaColor: MAP_COLORS.noData,
+            borderColor: MAP_COLORS.border,
             borderWidth: 0.5,
           },
           emphasis: {
-            itemStyle: { areaColor: theme.accentDeep },
+            itemStyle: { areaColor: MAP_COLORS.emphasis },
             label: { show: false },
           },
           select: { disabled: true },

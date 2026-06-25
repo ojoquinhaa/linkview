@@ -7,6 +7,8 @@ import { getActiveWorkspace } from "@/server/workspace";
 import {
   cancelWorkspaceSubscription,
   changeSubscriptionCycle,
+  getWorkspaceSubscription,
+  reconcilePendingSubscription,
   startSubscription,
 } from "./subscription";
 import { type StartTrialResult, startTrial } from "./trial";
@@ -64,6 +66,39 @@ export async function createCheckout(
 /** Start the 7-day Pro trial for the signed-in user's workspace. */
 export async function startTrialAction(): Promise<StartTrialResult> {
   return startTrial();
+}
+
+export interface ActivationResult {
+  /** `active` once the first charge clears; `pending` while we wait; `none`
+   * when there's no subscription to confirm. */
+  status: "active" | "pending" | "none";
+}
+
+/**
+ * Poll target for the confirmation screen. Best-effort reconciles the pending
+ * subscription against Asaas (so a Pix/card payment activates the moment it
+ * clears, even if the webhook is late) and reports the current status. Safe to
+ * call on an interval: idempotent and a no-op once active.
+ */
+export async function checkActivationAction(): Promise<ActivationResult> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace) return { status: "none" };
+
+  try {
+    if (await reconcilePendingSubscription(workspace.id)) {
+      return { status: "active" };
+    }
+  } catch (err) {
+    console.error("billing.check_activation_failed", err);
+  }
+
+  const sub = await getWorkspaceSubscription(workspace.id);
+  if (!sub) return { status: "none" };
+  if (sub.status === "active" || sub.status === "trialing") {
+    return { status: "active" };
+  }
+  return { status: "pending" };
 }
 
 export interface SwitchCycleResult {

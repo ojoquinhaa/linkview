@@ -6,6 +6,7 @@ import { type FormEvent, useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
+import { copyQrImage, downloadQrPng } from "@/lib/qr-image";
 import type { LinkQrCode } from "@/server/links-query";
 import { createQrCodeAction, deleteQrCodeAction } from "@/server/qr";
 import { CopyButton } from "./copy-button";
@@ -15,15 +16,19 @@ function qrUrl(domain: string, slug: string, id: string): string {
   return `https://${domain}/${slug}?qr=${id}`;
 }
 
-/** Renders the QR image for a tracked URL and offers a PNG download. */
+const qrActionCls =
+  "inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-line bg-surface px-2.5 text-[0.78rem] font-medium text-ink-soft transition-colors hover:bg-paper-sunk disabled:pointer-events-none disabled:opacity-50";
+
+/** QR image for a tracked URL with working PNG download + copy-image actions. */
 function QrThumb({ url, name }: { url: string; name: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let alive = true;
     QRCode.toDataURL(url, {
       margin: 2,
-      width: 480,
+      width: 640,
       color: { dark: "#222438", light: "#fbfbfd" },
       errorCorrectionLevel: "M",
     }).then((d) => {
@@ -36,30 +41,49 @@ function QrThumb({ url, name }: { url: string; name: string }) {
 
   const fileName = `qr-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "code"}.png`;
 
+  async function onCopy() {
+    if (!dataUrl) return;
+    const res = await copyQrImage(dataUrl, url);
+    if (res !== "fail") {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }
+  }
+
   return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="rounded-xl border border-line bg-[#fbfbfd] p-2">
+    <div className="flex flex-col items-center gap-3">
+      <div className="rounded-xl border border-line bg-[#fbfbfd] p-2.5">
         {dataUrl ? (
           // biome-ignore lint/performance/noImgElement: data: URL from client-side QR generation, not optimizable by next/image
           <img
             src={dataUrl}
             alt={`QR Code ${name}`}
-            width={96}
-            height={96}
-            className="size-24"
+            width={128}
+            height={128}
+            className="size-32 sm:size-24"
           />
         ) : (
-          <div className="size-24 animate-pulse rounded-md bg-paper-sunk" />
+          <div className="size-32 animate-pulse rounded-md bg-paper-sunk sm:size-24" />
         )}
       </div>
-      <a
-        href={dataUrl ?? "#"}
-        download={fileName}
-        aria-disabled={!dataUrl}
-        className="text-[0.78rem] font-medium text-accent hover:underline aria-disabled:pointer-events-none aria-disabled:opacity-50"
-      >
-        Baixar PNG
-      </a>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => dataUrl && downloadQrPng(dataUrl, fileName)}
+          disabled={!dataUrl}
+          className={qrActionCls}
+        >
+          Baixar
+        </button>
+        <button
+          type="button"
+          onClick={onCopy}
+          disabled={!dataUrl}
+          className={qrActionCls}
+        >
+          {copied ? "Copiado!" : "Copiar imagem"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -187,12 +211,12 @@ export function QrCodesManager({
               >
                 <QrThumb url={url} name={q.name} />
 
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 text-center sm:text-left">
                   <span className="font-medium text-ink">{q.name}</span>
                   <p className="mt-1 truncate font-mono text-[0.8rem] text-muted">
                     {url.replace(/^https?:\/\//, "")}
                   </p>
-                  <div className="mt-2">
+                  <div className="mt-2 flex justify-center sm:justify-start">
                     <CopyButton value={url} label="Copiar link" />
                   </div>
                 </div>

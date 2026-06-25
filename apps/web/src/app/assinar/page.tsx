@@ -27,18 +27,14 @@ const PRO_PERKS = [
   "Links com senha e expiração",
 ];
 
-export default async function AssinarPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ status?: string }>;
-}) {
+export default async function AssinarPage() {
   const session = await requireSession();
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) redirect("/login");
 
   let sub = await getWorkspaceSubscription(workspace.id);
   // If a charge already cleared at Asaas but the webhook hasn't landed, activate
-  // now so the "Já paguei — verificar agora" reload lets the user straight in.
+  // now so a returning user lands straight in the dashboard.
   if (sub?.status === "pending") {
     try {
       await reconcilePendingSubscription(workspace.id);
@@ -48,9 +44,10 @@ export default async function AssinarPage({
     }
   }
   if (sub && ACTIVE.has(sub.status)) redirect("/dashboard/links");
+  // A charge that's still settling belongs on the live confirmation screen, not
+  // back on the pricing page.
+  if (sub?.status === "pending") redirect("/assinar/confirmando");
 
-  const { status } = await searchParams;
-  const awaiting = sub?.status === "pending" || status === "ok";
   const plan = getPlan("pro");
   const savings = getAnnualSavings("pro");
   const pricing = {
@@ -77,50 +74,38 @@ export default async function AssinarPage({
       </header>
 
       <main className="relative z-10 flex flex-1 flex-col items-center px-6 pb-16">
-        {awaiting ? (
-          <div className="grid flex-1 place-items-center">
-            <div className="w-full max-w-[27rem] rounded-2xl border border-line bg-surface p-7 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)]">
-              <Awaiting />
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="mx-auto max-w-2xl pt-4 text-center sm:pt-8">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-line bg-accent-weak px-3 py-1 text-[0.78rem] font-medium text-accent-deep">
-                <Spark />
-                Links inteligentes, decisões melhores
-              </span>
-              <h1 className="mt-5 text-balance font-display text-[2rem] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[2.5rem]">
-                Escolha o plano ideal para você
-              </h1>
-              <p className="mx-auto mt-3 max-w-md text-pretty text-[0.95rem] text-muted">
-                Crie, gerencie e analise seus links com mais inteligência e
-                segurança.
-              </p>
-            </div>
+        <div className="mx-auto max-w-2xl pt-4 text-center sm:pt-8">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-line bg-accent-weak px-3 py-1 text-[0.78rem] font-medium text-accent-deep">
+            <Spark />
+            Links inteligentes, decisões melhores
+          </span>
+          <h1 className="mt-5 text-balance font-display text-[2rem] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[2.5rem]">
+            Escolha o plano ideal para você
+          </h1>
+          <p className="mx-auto mt-3 max-w-md text-pretty text-[0.95rem] text-muted">
+            Crie, gerencie e analise seus links com mais inteligência e
+            segurança.
+          </p>
+        </div>
 
-            <div
-              className={`mt-10 grid w-full items-start gap-5 ${
-                trial.eligible
-                  ? "max-w-4xl sm:grid-cols-2"
-                  : "max-w-md grid-cols-1"
-              }`}
-            >
-              {trial.eligible && <TrialCta days={TRIAL_DURATION_DAYS} />}
-              <ProCard pricing={pricing} secondaryCta={trial.eligible} />
-            </div>
+        <div
+          className={`mt-10 grid w-full items-start gap-5 ${
+            trial.eligible ? "max-w-4xl sm:grid-cols-2" : "max-w-md grid-cols-1"
+          }`}
+        >
+          {trial.eligible && <TrialCta days={TRIAL_DURATION_DAYS} />}
+          <ProCard pricing={pricing} secondaryCta={trial.eligible} />
+        </div>
 
-            <p className="mt-8 text-center text-[0.85rem] text-muted">
-              Entrou com {session.user.email}.{" "}
-              <Link
-                href="/login"
-                className="font-medium text-accent hover:underline"
-              >
-                Trocar conta
-              </Link>
-            </p>
-          </>
-        )}
+        <p className="mt-8 text-center text-[0.85rem] text-muted">
+          Entrou com {session.user.email}.{" "}
+          <Link
+            href="/login"
+            className="font-medium text-accent hover:underline"
+          >
+            Trocar conta
+          </Link>
+        </p>
       </main>
     </div>
   );
@@ -170,27 +155,6 @@ function ProCard({
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function Awaiting() {
-  return (
-    <div className="text-center">
-      <h1 className="font-display text-[1.4rem] font-semibold tracking-[-0.02em] text-ink">
-        Pagamento em processamento
-      </h1>
-      <p className="mx-auto mt-2 max-w-xs text-[0.9rem] leading-relaxed text-muted">
-        Recebemos seu pedido. Pagamentos via Pix liberam em segundos; boleto
-        pode levar até alguns dias úteis. Assim que confirmar, seu acesso é
-        liberado automaticamente.
-      </p>
-      <Link
-        href="/assinar"
-        className="mt-6 inline-block text-[0.9rem] font-medium text-accent hover:underline"
-      >
-        Já paguei — verificar agora
-      </Link>
     </div>
   );
 }

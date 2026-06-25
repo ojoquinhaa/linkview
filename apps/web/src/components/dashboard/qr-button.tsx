@@ -1,11 +1,12 @@
 "use client";
 import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
-import { CopyButton } from "./copy-button";
+import { copyQrImage, downloadQrPng } from "@/lib/qr-image";
 
 export function QrButton({ url, slug }: { url: string; slug: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!dataUrl) {
@@ -17,6 +18,15 @@ export function QrButton({ url, slug }: { url: string; slug: string }) {
       }).then(setDataUrl);
     }
   }, [url, dataUrl]);
+
+  async function onCopy() {
+    if (!dataUrl) return;
+    const res = await copyQrImage(dataUrl, url);
+    if (res !== "fail") {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }
+  }
 
   return (
     <>
@@ -78,19 +88,24 @@ export function QrButton({ url, slug }: { url: string; slug: string }) {
           <p className="font-mono text-[0.8rem] text-muted">{url}</p>
 
           <div className="flex w-full items-center justify-center gap-2">
-            <a
-              href={dataUrl ?? "#"}
-              download={`qr-${slug}.png`}
-              aria-disabled={!dataUrl}
-              className="inline-flex h-9 flex-1 items-center justify-center rounded-[var(--radius-input)] bg-accent px-3 text-[0.85rem] font-medium text-accent-ink transition-colors hover:bg-accent-deep"
+            <button
+              type="button"
+              onClick={() =>
+                dataUrl && downloadQrPng(dataUrl, `qr-${slug}.png`)
+              }
+              disabled={!dataUrl}
+              className="inline-flex h-9 flex-1 items-center justify-center rounded-[var(--radius-input)] bg-accent px-3 text-[0.85rem] font-medium text-accent-ink transition-colors hover:bg-accent-deep disabled:opacity-50"
             >
               Baixar PNG
-            </a>
-            <CopyButton
-              value={url}
-              className="h-9 border border-line px-3"
-              label="Copiar link"
-            />
+            </button>
+            <button
+              type="button"
+              onClick={onCopy}
+              disabled={!dataUrl}
+              className="inline-flex h-9 flex-1 items-center justify-center rounded-[var(--radius-input)] border border-line px-3 text-[0.85rem] font-medium text-ink-soft transition-colors hover:bg-paper-sunk disabled:opacity-50"
+            >
+              {copied ? "Copiado!" : "Copiar imagem"}
+            </button>
           </div>
         </div>
       </dialog>

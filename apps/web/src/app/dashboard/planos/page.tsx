@@ -100,21 +100,26 @@ export default async function PlanosPage() {
           {/* Current-plan panel. */}
           <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)] sm:p-7">
             <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2.5">
-                  <h2 className="font-display text-[1.35rem] font-semibold tracking-[-0.02em] text-ink">
-                    {onTrial ? "Teste Pro" : "Pro"}
-                  </h2>
-                  <StatusPill
-                    onTrial={onTrial}
-                    canceling={sub.cancelAtPeriodEnd}
-                  />
+              <div className="flex min-w-0 items-start gap-3.5">
+                <span className="mt-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-accent-weak text-accent">
+                  <Bolt />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="font-display text-[1.35rem] font-semibold tracking-[-0.02em] text-ink">
+                      {onTrial ? "Teste Pro" : "Pro"}
+                    </h2>
+                    <StatusPill
+                      onTrial={onTrial}
+                      canceling={sub.cancelAtPeriodEnd}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-[0.9rem] text-muted">
+                    {onTrial
+                      ? "Acesso Pro completo durante o teste."
+                      : "Tudo para criar e medir seus links. Cancele quando quiser."}
+                  </p>
                 </div>
-                <p className="mt-1.5 text-[0.9rem] text-muted">
-                  {onTrial
-                    ? "Acesso Pro completo durante o teste."
-                    : "Tudo para criar e medir seus links. Cancele quando quiser."}
-                </p>
               </div>
               <div className="shrink-0 text-right">
                 <span className="nums text-[1.5rem] font-semibold leading-none text-ink">
@@ -245,6 +250,24 @@ function TrialMeter({ daysLeft, endsAt }: { daysLeft: number; endsAt: Date }) {
         />
       </div>
     </div>
+  );
+}
+
+function Bolt() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      className="size-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <title>Pro</title>
+      <path d="M13 2 4 14h7l-1 8 9-12h-7z" />
+    </svg>
   );
 }
 

@@ -147,11 +147,11 @@ function LinkCard({
   const paused = !item.isActive;
 
   return (
-    <li className="group relative flex flex-col rounded-2xl border border-line bg-surface p-4 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)] transition-[border-color,box-shadow] duration-150 ease-[var(--ease-out-quint)] hover:border-line-strong hover:shadow-[0_6px_20px_-8px_oklch(0.42_0.12_265/0.18)]">
+    <li className="group relative flex min-w-0 flex-col rounded-2xl border border-line bg-surface p-4 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)] transition-[border-color,box-shadow] duration-150 ease-[var(--ease-out-quint)] hover:border-line-strong hover:shadow-[0_6px_20px_-8px_oklch(0.42_0.12_265/0.18)]">
       <div className="flex items-start justify-between gap-2">
         <Link
           href={detailHref}
-          className="min-w-0 font-mono text-[0.9rem] font-medium before:absolute before:inset-0 before:content-['']"
+          className="block min-w-0 truncate font-mono text-[0.9rem] font-medium before:absolute before:inset-0 before:content-['']"
         >
           <span className="text-muted">{domain}/</span>
           <span className="text-accent-deep">{item.slug}</span>

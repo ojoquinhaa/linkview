@@ -126,7 +126,7 @@ export async function startSubscription(
     externalReference: workspaceId,
     cycle: cycle === "yearly" ? "YEARLY" : "MONTHLY",
     callback: {
-      successUrl: `${appUrl()}/assinar?status=ok`,
+      successUrl: `${appUrl()}/assinar/confirmando`,
       autoRedirect: true,
     },
   });

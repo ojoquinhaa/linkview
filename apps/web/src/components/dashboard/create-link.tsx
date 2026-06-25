@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
@@ -50,6 +51,7 @@ function cleanHandle(raw: string): string {
 }
 
 export function CreateLink({ domain }: { domain: string }) {
+  const router = useRouter();
   const [type, setType] = useState<LinkType>("url");
 
   // url
@@ -163,6 +165,8 @@ export function CreateLink({ domain }: { domain: string }) {
       }
       setCreated({ shortUrl: res.link.shortUrl, slug: res.link.slug });
       resetFields();
+      // Go to the link detail page; the success card stays visible until it loads.
+      router.push(`/dashboard/links/${res.link.slug}`);
     });
   }
 

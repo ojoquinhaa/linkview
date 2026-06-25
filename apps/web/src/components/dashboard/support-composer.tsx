@@ -64,9 +64,9 @@ export function SupportComposer({
   }
 
   return (
-    <div className="grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
+    <div className="grid min-w-0 gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
       <form
-        className="flex max-w-xl flex-col gap-6"
+        className="flex min-w-0 max-w-xl flex-col gap-6"
         onSubmit={(e) => {
           e.preventDefault();
           open();

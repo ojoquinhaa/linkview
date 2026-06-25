@@ -106,6 +106,47 @@
     }
   }
 
+  /* Indeterminate progress sweep for the payment-confirmation bar. A short
+     segment glides across its track to signal active work without a known
+     percentage. Reduced motion falls back to a calm centered segment. */
+  @keyframes sweep {
+    0% {
+      transform: translateX(-110%);
+    }
+    100% {
+      transform: translateX(420%);
+    }
+  }
+  .animate-sweep {
+    animation: sweep 1.4s var(--ease-out-quint) infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-sweep {
+      animation: none;
+      margin-inline: auto;
+    }
+  }
+
+  /* Confirmation medallion entrance: a settled scale-in, no bounce. */
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.82);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .animate-pop {
+    animation: pop 0.5s var(--ease-out-quint) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-pop {
+      animation: none;
+    }
+  }
+
   /* Slim, brand-tinted scrollbar for inner scroll areas (geo lists). */
   .scroll-soft {
     scrollbar-width: thin;

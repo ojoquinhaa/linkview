@@ -58,6 +58,21 @@ export function isValidDestinationUrl(input: string): boolean {
   return validateDestinationUrl(input) === null;
 }
 
+/** Canonicalize a destination URL so it is always ASCII-safe for storage and for
+ * the HTTP Location header (header values are Latin-1 byte strings; raw multibyte
+ * gets corrupted to `?`/`�`). The URL constructor percent-encodes any raw
+ * non-ASCII — e.g. emoji typed on an iPhone keyboard or pasted into a wa.me link
+ * — in the path/query. Already-encoded input (`%F0%9F…`) is left unchanged, so it
+ * is idempotent. Non-parseable input is returned untouched so existing validation
+ * still runs. */
+export function canonicalizeDestinationUrl(input: string): string {
+  try {
+    return new URL(input).toString();
+  } catch {
+    return input;
+  }
+}
+
 /** Build a WhatsApp click-to-chat URL (ARCHITECTURE.md section 19). */
 export function buildWhatsAppUrl(phone: string, message?: string): string {
   const digits = phone.replace(/\D/g, "");
