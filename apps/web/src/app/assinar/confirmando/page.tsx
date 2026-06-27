@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { SupportFab } from "@/components/support-fab";
 import { Wordmark } from "@/components/wordmark";
 import {
+  getOpenInvoiceUrl,
   getWorkspaceSubscription,
   reconcilePendingSubscription,
 } from "@/server/billing/subscription";
@@ -38,6 +39,15 @@ export default async function ConfirmandoPage() {
   }
   if (active) redirect("/assinar/sucesso");
 
+  // The hosted invoice for the still-open charge, so the user can pay (or finish
+  // paying) right from this screen instead of being stranded waiting.
+  let invoiceUrl: string | null = null;
+  try {
+    invoiceUrl = await getOpenInvoiceUrl(workspace.id);
+  } catch (err) {
+    console.error("billing.confirm_invoice_failed", err);
+  }
+
   return (
     <div className="relative flex min-h-screen flex-col bg-paper">
       <div
@@ -49,7 +59,7 @@ export default async function ConfirmandoPage() {
       </header>
 
       <main className="relative z-10 grid flex-1 place-items-center px-6 pb-16">
-        <Confirming />
+        <Confirming invoiceUrl={invoiceUrl} />
       </main>
 
       <SupportFab />

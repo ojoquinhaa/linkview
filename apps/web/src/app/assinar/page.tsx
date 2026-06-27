@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { BillingCycleChoice } from "@/components/billing/billing-cycle-choice";
 import { Wordmark } from "@/components/wordmark";
 import {
+  getOpenInvoiceUrl,
   getWorkspaceSubscription,
   reconcilePendingSubscription,
 } from "@/server/billing/subscription";
@@ -44,9 +45,13 @@ export default async function AssinarPage() {
     }
   }
   if (sub && ACTIVE.has(sub.status)) redirect("/dashboard/links");
-  // A charge that's still settling belongs on the live confirmation screen, not
-  // back on the pricing page.
-  if (sub?.status === "pending") redirect("/assinar/confirmando");
+  // A pending charge must NOT bounce back to the confirmation screen: that, plus
+  // the dashboard's paid-gate, funnels the user into an inescapable loop. Show
+  // the plans instead, with a banner to finish or restart the open payment.
+  const pendingInvoiceUrl =
+    sub?.status === "pending"
+      ? await getOpenInvoiceUrl(workspace.id).catch(() => null)
+      : null;
 
   const plan = getPlan("pro");
   const savings = getAnnualSavings("pro");
@@ -87,6 +92,26 @@ export default async function AssinarPage() {
             segurança.
           </p>
         </div>
+
+        {sub?.status === "pending" && (
+          <div className="mt-8 w-full max-w-md rounded-2xl border border-accent-line bg-accent-weak p-4 text-left">
+            <p className="text-[0.9rem] font-medium text-ink">
+              Você tem um pagamento em aberto
+            </p>
+            <p className="mt-1 text-[0.85rem] text-muted">
+              Conclua o pagamento para liberar o acesso, ou escolha outro plano
+              abaixo.
+            </p>
+            {pendingInvoiceUrl && (
+              <a
+                href={pendingInvoiceUrl}
+                className="mt-3 inline-flex h-10 items-center justify-center rounded-[var(--radius-input)] bg-accent px-4 text-[0.85rem] font-medium text-accent-ink transition-colors duration-150 ease-[var(--ease-out-quint)] hover:bg-accent-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+              >
+                Continuar pagamento
+              </a>
+            )}
+          </div>
+        )}
 
         <div
           className={`mt-10 grid w-full items-start gap-5 ${
