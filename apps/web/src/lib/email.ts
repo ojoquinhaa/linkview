@@ -173,6 +173,43 @@ export async function sendCardChargeFailedEmail(args: {
   );
 }
 
+export async function sendSubscriptionCanceledEmail(args: {
+  to: string;
+  name?: string | null;
+  /** Last day of paid access (grace period end), or null when unknown. */
+  accessUntil: Date | null;
+  /** Plan page where the customer can resume in one tap. */
+  resumeUrl: string;
+}): Promise<void> {
+  const hi = args.name ? `Olá, ${args.name}. ` : "";
+  const until = args.accessUntil
+    ? new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }).format(args.accessUntil)
+    : null;
+  // Win-back, low-pressure: lead with what they keep, make resuming a non-event
+  // (no charge now). The grace window is the natural reason to act.
+  const intro = `${hi}Sua assinatura Pro foi cancelada e não haverá novas cobranças. ${
+    until
+      ? `Você continua com todos os recursos Pro até ${until} — depois disso o workspace volta ao plano gratuito.`
+      : "Você mantém o acesso Pro até o fim do período já pago."
+  } Mudou de ideia? Você pode retomar a qualquer momento dentro desse período, sem pagar nada agora — a cobrança só volta na próxima renovação.`;
+  await send(
+    args.to,
+    "Sua assinatura Pro foi cancelada — linkview",
+    layout({
+      heading: "Que pena ver você sair",
+      intro,
+      buttonLabel: "Retomar o Pro",
+      buttonUrl: args.resumeUrl,
+      footnote:
+        "Seus links e relatórios continuam aqui durante o período de acesso. Se foi engano ou você quer voltar, é um clique.",
+    }),
+  );
+}
+
 export async function sendVerificationEmail(args: {
   to: string;
   name?: string | null;

@@ -15,7 +15,11 @@ import {
   type PlanKey,
 } from "@linkview/shared";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { emailConfigured, sendPaymentReceiptEmail } from "@/lib/email";
+import {
+  emailConfigured,
+  sendPaymentReceiptEmail,
+  sendSubscriptionCanceledEmail,
+} from "@/lib/email";
 import * as asaas from "./asaas";
 
 /** Asaas payment statuses that mean the money cleared. */
@@ -443,6 +447,7 @@ export async function cancelWorkspaceSubscription(
     .select({
       id: subscriptions.id,
       providerSubscriptionId: subscriptions.providerSubscriptionId,
+      currentPeriodEnd: subscriptions.currentPeriodEnd,
     })
     .from(subscriptions)
     .where(eq(subscriptions.workspaceId, workspaceId))
@@ -453,6 +458,120 @@ export async function cancelWorkspaceSubscription(
   await db
     .update(subscriptions)
     .set({ cancelAtPeriodEnd: true, canceledAt: new Date() })
+    .where(eq(subscriptions.id, row.id));
+
+  // Win-back nudge: tell the customer what they keep until the period ends and
+  // that resuming costs nothing now. Best-effort — never let a failed email (or
+  // unconfigured email) break the cancellation the user just asked for.
+  await sendCancellationEmail(db, workspaceId, row.currentPeriodEnd);
+}
+
+/** Best-effort win-back email after a cancellation. Swallows all errors. */
+async function sendCancellationEmail(
+  db: Database,
+  workspaceId: string,
+  accessUntil: Date | null,
+): Promise<void> {
+  if (!emailConfigured()) return;
+  try {
+    const [customer] = await db
+      .select({ email: billingCustomers.email, name: billingCustomers.name })
+      .from(billingCustomers)
+      .where(eq(billingCustomers.workspaceId, workspaceId))
+      .limit(1);
+    if (!customer?.email) return;
+    await sendSubscriptionCanceledEmail({
+      to: customer.email,
+      name: customer.name,
+      accessUntil,
+      resumeUrl: `${appUrl()}/dashboard/planos`,
+    });
+  } catch (err) {
+    console.error("billing.cancel_email_failed", err);
+  }
+}
+
+/**
+ * Undo a "cancel at period end" while the paid period is still running, without
+ * charging now. Canceling DELETEs the Asaas subscription, so there's nothing to
+ * un-delete — we recreate it with `nextDueDate` set to the current period's end,
+ * meaning the first new charge lands exactly when the paid access would have
+ * lapsed (no double-billing, no gap). Only valid inside the grace window
+ * (`cancelAtPeriodEnd` set, still `active`, `currentPeriodEnd` in the future);
+ * once it lapses the cron demotes to free and the user must subscribe again.
+ *
+ * Card autopay needs no redirect: the recreated subscription's first charge is a
+ * future-dated PENDING payment, which `getOpenInvoiceUrl` surfaces — so the
+ * normal "Atualizar cartão" button on the plan page recaptures the card whenever
+ * the customer chooses, with no charge today and no payment page to get stuck on.
+ */
+export async function resumeSubscription(workspaceId: string): Promise<void> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: subscriptions.id,
+      status: subscriptions.status,
+      billingCycle: subscriptions.billingCycle,
+      cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
+      currentPeriodEnd: subscriptions.currentPeriodEnd,
+      autopay: subscriptions.autopay,
+      planKey: plans.key,
+    })
+    .from(subscriptions)
+    .innerJoin(plans, eq(subscriptions.planId, plans.id))
+    .where(eq(subscriptions.workspaceId, workspaceId))
+    .limit(1);
+
+  if (!row) throw new Error("Nenhuma assinatura para retomar.");
+  if (!row.cancelAtPeriodEnd) {
+    throw new Error("A assinatura já está ativa.");
+  }
+  if (
+    row.status !== "active" ||
+    !row.currentPeriodEnd ||
+    row.currentPeriodEnd <= new Date()
+  ) {
+    throw new Error("O período já encerrou. Assine novamente.");
+  }
+
+  const [customer] = await db
+    .select({ providerCustomerId: billingCustomers.providerCustomerId })
+    .from(billingCustomers)
+    .where(eq(billingCustomers.workspaceId, workspaceId))
+    .limit(1);
+  if (!customer?.providerCustomerId) {
+    throw new Error("Cadastro de cobrança não encontrado.");
+  }
+
+  const planKey = row.planKey as PlanKey;
+  const plan = getPlan(planKey);
+  const priceCents = getCyclePriceCents(planKey, row.billingCycle);
+
+  // First charge falls on the day the paid period ends — nothing today.
+  const nextDueDate = row.currentPeriodEnd.toISOString().slice(0, 10);
+
+  const sub = await asaas.createSubscription({
+    customer: customer.providerCustomerId,
+    value: priceCents / 100,
+    nextDueDate,
+    description: `linkview ${plan.name} (${row.billingCycle === "yearly" ? "anual" : "mensal"})`,
+    externalReference: workspaceId,
+    cycle: row.billingCycle === "yearly" ? "YEARLY" : "MONTHLY",
+    billingType: row.autopay ? "CREDIT_CARD" : "UNDEFINED",
+    callback: {
+      successUrl: `${appUrl()}/dashboard/planos`,
+      autoRedirect: true,
+    },
+  });
+
+  await db
+    .update(subscriptions)
+    .set({
+      providerSubscriptionId: sub.id,
+      status: "active",
+      cancelAtPeriodEnd: false,
+      canceledAt: null,
+    })
     .where(eq(subscriptions.id, row.id));
 }
 

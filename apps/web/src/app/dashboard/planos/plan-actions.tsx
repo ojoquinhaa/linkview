@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
   cancelSubscriptionAction,
   cardUpdateUrlAction,
+  resumeSubscriptionAction,
   switchBillingCycleAction,
 } from "@/server/billing/actions";
 
@@ -43,22 +44,22 @@ export function PlanActions({
   currentCycle: BillingCycle;
   nextChargeLabel: string | null;
 }) {
-  // Trial users (and Pro users who already canceled) get the checkout path.
-  if (mode === "trial" || canceling) {
+  // Trial users get the checkout path.
+  if (mode === "trial") {
     return (
       <Upgrade
-        title={
-          mode === "trial" ? "Continue no Pro" : "Mudou de ideia? Reative o Pro"
-        }
-        blurb={
-          mode === "trial"
-            ? `Escolha seu ciclo e assine antes que o teste de ${trialDays} dias acabe.`
-            : "Escolha seu ciclo e volte a ter acesso Pro sem data para acabar."
-        }
-        cta={mode === "trial" ? "Assinar Pro" : "Reativar Pro"}
+        title="Continue no Pro"
+        blurb={`Escolha seu ciclo e assine antes que o teste de ${trialDays} dias acabe.`}
+        cta="Assinar Pro"
         pricing={pricing}
       />
     );
+  }
+
+  // A Pro user who scheduled a cancellation but is still inside the paid period
+  // can resume without paying now — the next charge just returns at renewal.
+  if (canceling) {
+    return <ResumeRow autopay={autopay} nextChargeLabel={nextChargeLabel} />;
   }
 
   return (
@@ -313,6 +314,70 @@ function Upgrade({
           {cta}
         </Button>
       )}
+    </section>
+  );
+}
+
+/**
+ * Resume panel for a subscriber who canceled but is still inside the paid
+ * period. Resuming charges nothing now: the subscription is recreated with its
+ * first charge dated to the current period's end. Card autopay is redirected to
+ * a hosted page to re-enter a card for that future charge; manual (Pix/boleto)
+ * resumes in a single click.
+ */
+function ResumeRow({
+  autopay,
+  nextChargeLabel,
+}: {
+  autopay: boolean;
+  nextChargeLabel: string | null;
+}) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onResume() {
+    setError(null);
+    setLoading(true);
+    const res = await resumeSubscriptionAction();
+    if (!res.ok) {
+      setError(res.error ?? "Não foi possível retomar.");
+      setLoading(false);
+      return;
+    }
+    // Stay in the app: refresh to the active-plan view. Autopay customers
+    // recapture a card there via "Atualizar cartão" — nothing is charged now.
+    router.refresh();
+  }
+
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)] sm:p-7">
+      <h3 className="font-display text-[1.1rem] font-semibold tracking-[-0.01em] text-ink">
+        Mudou de ideia? Retome o Pro
+      </h3>
+      <p className="mt-1.5 text-[0.88rem] text-muted">
+        {nextChargeLabel
+          ? `Seu acesso Pro continua até ${nextChargeLabel}. Retome agora — nada é cobrado, e a próxima cobrança volta a ser em ${nextChargeLabel}.`
+          : "Retome agora — nada é cobrado, e a cobrança volta no próximo ciclo."}
+        {autopay ? " Depois, confirme seu cartão em “Atualizar cartão”." : ""}
+      </p>
+      {error && (
+        <div
+          role="alert"
+          className="mt-4 rounded-[var(--radius-input)] border border-danger/30 bg-danger-weak px-3.5 py-2.5 text-[0.85rem] text-danger"
+        >
+          {error}
+        </div>
+      )}
+      <Button
+        type="button"
+        size="lg"
+        loading={loading}
+        onClick={onResume}
+        className="mt-5 w-full sm:w-auto"
+      >
+        Retomar Pro
+      </Button>
     </section>
   );
 }

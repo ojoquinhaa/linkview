@@ -10,6 +10,7 @@ import {
   getOpenInvoiceUrl,
   getWorkspaceSubscription,
   reconcilePendingSubscription,
+  resumeSubscription,
   startSubscription,
 } from "./subscription";
 import { type StartTrialResult, startTrial } from "./trial";
@@ -183,6 +184,36 @@ export async function cancelSubscriptionAction(): Promise<CancelActionResult> {
     return {
       ok: false,
       error: "Não foi possível cancelar agora. Tente novamente.",
+    };
+  }
+}
+
+export interface ResumeActionResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Undo a scheduled cancellation while the paid period is still running. Nothing
+ * is charged now — the subscription is recreated with its first charge dated to
+ * the current period's end. The user stays in the app; card autopay recaptures a
+ * card later via the normal "Atualizar cartão" button (no payment page to land
+ * on, so the resume can't trap the user on an Asaas checkout).
+ */
+export async function resumeSubscriptionAction(): Promise<ResumeActionResult> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace)
+    return { ok: false, error: "Sessão expirada. Entre novamente." };
+
+  try {
+    await resumeSubscription(workspace.id);
+    return { ok: true };
+  } catch (err) {
+    console.error("billing.resume_failed", err);
+    return {
+      ok: false,
+      error: "Não foi possível retomar agora. Tente novamente.",
     };
   }
 }
