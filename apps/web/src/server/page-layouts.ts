@@ -87,6 +87,7 @@ export async function requestLayoutUploadAction(input: {
     const { uploadUrl, fileUrl } = await presignUpload({
       key,
       contentType: input.contentType,
+      contentLength: input.size,
     });
     return { ok: true, uploadUrl, fileUrl };
   } catch (err) {

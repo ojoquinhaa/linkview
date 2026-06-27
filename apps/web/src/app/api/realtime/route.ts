@@ -9,12 +9,32 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+// Cap concurrent SSE streams per user (per warm instance) so a client can't
+// exhaust the connection / Redis-subscriber budget by opening many EventSources.
+const MAX_CONNECTIONS_PER_USER = 5;
+const openConnections = new Map<string, number>();
+
 /** Server-Sent Events stream of click activity for the caller's workspace. */
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) return new Response("unauthorized", { status: 401 });
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) return new Response("no workspace", { status: 403 });
+
+  const userId = session.user.id;
+  const openNow = openConnections.get(userId) ?? 0;
+  if (openNow >= MAX_CONNECTIONS_PER_USER) {
+    return new Response("too many connections", { status: 429 });
+  }
+  openConnections.set(userId, openNow + 1);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    const n = (openConnections.get(userId) ?? 1) - 1;
+    if (n <= 0) openConnections.delete(userId);
+    else openConnections.set(userId, n);
+  };
 
   const channel = workspaceChannel(workspace.id);
   const sub = createSubscriber();
@@ -47,6 +67,7 @@ export async function GET(request: Request) {
       const close = async () => {
         if (closed) return;
         closed = true;
+        release();
         clearInterval(heartbeat);
         try {
           await sub.unsubscribe(channel);
@@ -60,6 +81,7 @@ export async function GET(request: Request) {
       request.signal.addEventListener("abort", () => void close());
     },
     cancel() {
+      release();
       sub.disconnect();
     },
   });

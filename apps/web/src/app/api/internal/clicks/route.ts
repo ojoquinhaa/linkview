@@ -122,6 +122,20 @@ export async function POST(request: Request) {
 
   const db = getDb();
 
+  // Defense in depth: trust the DB for the link's owner, not the payload. A
+  // forged `workspaceId` must never attribute clicks to — or trip the click cap
+  // on — another tenant's link. Reject a click whose link doesn't exist, and
+  // use the link's real workspace for everything downstream.
+  const [linkRow] = await db
+    .select({ workspaceId: links.workspaceId })
+    .from(links)
+    .where(eq(links.id, c.linkId))
+    .limit(1);
+  if (!linkRow) {
+    return Response.json({ error: "unknown_link" }, { status: 404 });
+  }
+  const workspaceId = linkRow.workspaceId;
+
   // Attribute the scan to a QR code only when the marker is a real QR for this
   // link. Guards against a bogus `?qr=` (which would break the FK) and against
   // pointing one link's scan at another link's QR.
@@ -137,7 +151,7 @@ export async function POST(request: Request) {
 
   await db.insert(clicks).values({
     linkId: c.linkId,
-    workspaceId: c.workspaceId,
+    workspaceId,
     qrCodeId,
     occurredAt,
     ipHash: c.ipHash,
@@ -179,12 +193,12 @@ export async function POST(request: Request) {
         rateLimitPerMinute: links.rateLimitPerMinute,
       });
     if (updated?.isActive) {
-      await enforceClickCap(c.workspaceId, updated);
+      await enforceClickCap(workspaceId, updated);
     }
     // A real UTM hit registers its channel (idempotent, no phantom channels).
     if (c.source) {
       await ensureChannel(db, {
-        workspaceId: c.workspaceId,
+        workspaceId,
         linkId: c.linkId,
         source: c.source,
         medium: c.medium,
@@ -193,7 +207,7 @@ export async function POST(request: Request) {
     }
     // Push the new click to any open dashboard so its tabs refresh live.
     if (updated) {
-      await publishClick(c.workspaceId, {
+      await publishClick(workspaceId, {
         linkId: updated.id,
         slug: updated.slug,
       });

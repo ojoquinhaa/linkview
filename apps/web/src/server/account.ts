@@ -17,6 +17,7 @@ import { desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { logAudit } from "./audit";
+import { cancelWorkspaceSubscription } from "./billing/subscription";
 import { requireSession } from "./session";
 import { getActiveWorkspace } from "./workspace";
 
@@ -191,6 +192,21 @@ export async function closeAccountAction(): Promise<ActionResult> {
   const userId = session.user.id;
   const now = new Date();
   const db = getDb();
+
+  // Stop billing first: cancel the provider subscription for every workspace the
+  // user owns so a closed account is never charged again. Best-effort — a
+  // provider hiccup must not block the erasure the user requested.
+  const owned = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, userId));
+  for (const ws of owned) {
+    try {
+      await cancelWorkspaceSubscription(ws.id);
+    } catch (err) {
+      console.error("account.close_cancel_sub_failed", err);
+    }
+  }
 
   try {
     await db.batch([
