@@ -1,0 +1,41 @@
+---
+import { REGISTER_URL } from "@/lib/site";
+import Icon from "./Icon.astro";
+---
+
+<!-- The Committed-indigo moment: the page's one drenched surface. -->
+<section class="px-5 pb-[clamp(4rem,8vw,7rem)] sm:px-8">
+  <div
+    class="relative mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-accent-deep px-6 py-[clamp(3.5rem,7vw,6rem)] text-center"
+  >
+    <div
+      class="pointer-events-none absolute inset-0 opacity-60"
+      style="background:radial-gradient(40rem 24rem at 50% -20%, oklch(0.62 0.16 265 / 0.55), transparent 60%)"
+      aria-hidden="true"
+    >
+    </div>
+
+    <div class="relative mx-auto max-w-2xl">
+      <h2
+        class="font-display text-[clamp(2rem,4.6vw,3.25rem)] leading-[1.06] font-bold tracking-[-0.02em] text-balance text-accent-ink"
+      >
+        Pare de adivinhar. Comece a medir. Comece a crescer.
+      </h2>
+      <p
+        class="mx-auto mt-5 max-w-lg text-[1.05rem] leading-relaxed text-pretty text-accent-ink/80"
+      >
+        Junte-se aos profissionais que transformam cada clique em decisão.
+      </p>
+      <a
+        href={REGISTER_URL}
+        class="group mt-9 inline-flex h-13 items-center justify-center gap-2 rounded-input bg-paper px-7 text-base font-medium text-accent-deep shadow-[0_10px_30px_-10px_oklch(0.2_0.05_265/0.7)] transition-[transform,background-color] duration-150 ease-[var(--ease-out-quint)] hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-ink)] active:translate-y-px"
+      >
+        Criar meu link grátis por 7 dias
+        <Icon
+          name="arrowRight"
+          class="h-4 w-4 transition-transform duration-150 ease-[var(--ease-out-quint)] group-hover:translate-x-0.5"
+        />
+      </a>
+    </div>
+  </div>
+</section>

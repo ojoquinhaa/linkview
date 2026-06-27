@@ -1,0 +1,168 @@
+---
+import { SHORT_DOMAIN } from "@/lib/site";
+import Icon from "./Icon.astro";
+
+const channels = [
+  "Mídia paga",
+  "Bio do Instagram",
+  "QR em embalagem",
+  "Panfletos",
+  "Eventos",
+  "WhatsApp",
+];
+---
+
+<section id="recursos" class="mx-auto max-w-6xl px-5 py-[clamp(5rem,10vw,8rem)] sm:px-8">
+  <div class="max-w-2xl">
+    <p class="text-sm font-medium text-accent-deep">O que dá pra fazer</p>
+    <h2
+      class="mt-2 font-display text-[clamp(2rem,4.2vw,3rem)] leading-tight font-bold tracking-[-0.02em] text-balance text-ink"
+    >
+      Tudo para tomar decisões reais, nada para te confundir.
+    </h2>
+  </div>
+
+  <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+    <!-- A — wide hero feature with sparkline -->
+    <article
+      class="group flex flex-col justify-between rounded-2xl border border-line bg-surface p-7 transition-colors hover:border-accent-line sm:col-span-2 lg:col-span-4"
+    >
+      <div>
+        <span
+          class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-weak text-accent"
+        >
+          <Icon name="activity" />
+        </span>
+        <h3 class="mt-4 font-display text-xl font-semibold text-ink">
+          Cliques em tempo real
+        </h3>
+        <p class="mt-2 max-w-md text-[0.95rem] leading-relaxed text-ink-soft">
+          Veja seus links sendo acessados ao vivo, no segundo em que acontecem.
+          Sem esperar relatório do dia seguinte.
+        </p>
+      </div>
+      <svg
+        viewBox="0 0 480 90"
+        preserveAspectRatio="none"
+        class="mt-6 h-20 w-full"
+        aria-hidden="true"
+      >
+        <polygon
+          points="0,90 0,62 40,58 80,64 120,44 160,50 200,32 240,38 280,22 320,30 360,16 400,24 440,10 480,18 480,90"
+          fill="var(--accent-weak)"></polygon>
+        <polyline
+          points="0,62 40,58 80,64 120,44 160,50 200,32 240,38 280,22 320,30 360,16 400,24 440,10 480,18"
+          fill="none"
+          stroke="var(--accent)"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"></polyline>
+      </svg>
+    </article>
+
+    <!-- B — punchy, narrow -->
+    <article
+      class="group flex flex-col rounded-2xl border border-line bg-surface p-7 transition-colors hover:border-accent-line sm:col-span-2 lg:col-span-2"
+    >
+      <span
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-weak text-accent"
+      >
+        <Icon name="target" />
+      </span>
+      <h3 class="mt-4 font-display text-xl font-semibold text-ink">
+        Decisões baseadas em dados
+      </h3>
+      <p class="mt-2 text-[0.95rem] leading-relaxed text-ink-soft">
+        Pare de adivinhar. Otimize cada campanha com números reais, não com
+        achismo.
+      </p>
+    </article>
+
+    <!-- C -->
+    <article
+      class="group flex flex-col rounded-2xl border border-line bg-surface p-7 transition-colors hover:border-accent-line lg:col-span-2"
+    >
+      <span
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-weak text-accent"
+      >
+        <Icon name="link" />
+      </span>
+      <h3 class="mt-4 font-display text-xl font-semibold text-ink">
+        Links personalizados
+      </h3>
+      <p class="mt-2 text-[0.95rem] leading-relaxed text-ink-soft">
+        URLs curtas com a sua marca, que reforçam a confiança em cada clique.
+      </p>
+      <p class="mt-4 font-mono text-sm">
+        <span class="text-muted">{SHORT_DOMAIN}/</span><span
+          class="font-medium text-accent">sua-marca</span
+        >
+      </p>
+    </article>
+
+    <!-- D -->
+    <article
+      class="group flex flex-col rounded-2xl border border-line bg-surface p-7 transition-colors hover:border-accent-line lg:col-span-2"
+    >
+      <span
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-weak text-accent"
+      >
+        <Icon name="qr" />
+      </span>
+      <h3 class="mt-4 font-display text-xl font-semibold text-ink">
+        QR Codes rastreáveis
+      </h3>
+      <p class="mt-2 text-[0.95rem] leading-relaxed text-ink-soft">
+        Conecte o offline ao online. Cada escaneamento vira um clique medido.
+      </p>
+    </article>
+
+    <!-- E -->
+    <article
+      class="group flex flex-col rounded-2xl border border-line bg-surface p-7 transition-colors hover:border-accent-line lg:col-span-2"
+    >
+      <span
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-weak text-accent"
+      >
+        <Icon name="chart" />
+      </span>
+      <h3 class="mt-4 font-display text-xl font-semibold text-ink">
+        Relatórios completos
+      </h3>
+      <p class="mt-2 text-[0.95rem] leading-relaxed text-ink-soft">
+        Origem, dispositivo, localização e horário, em painéis fáceis de ler.
+      </p>
+    </article>
+
+    <!-- F — wide strip: campaigns across channels -->
+    <article
+      class="group rounded-2xl border border-line bg-surface p-7 transition-colors hover:border-accent-line sm:col-span-2 lg:col-span-6"
+    >
+      <div class="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+        <div class="max-w-md">
+          <span
+            class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-accent-weak text-accent"
+          >
+            <Icon name="megaphone" />
+          </span>
+          <h3 class="mt-4 font-display text-xl font-semibold text-ink">
+            Campanhas online e offline, no mesmo lugar
+          </h3>
+          <p class="mt-2 text-[0.95rem] leading-relaxed text-ink-soft">
+            Mídia paga, panfletos, embalagens e eventos. Veja qual canal traz
+            cliques de verdade.
+          </p>
+        </div>
+        <ul class="flex flex-wrap gap-2 md:max-w-xs md:justify-end">
+          {
+            channels.map((c) => (
+              <li class="rounded-full border border-line bg-paper-sunk px-3 py-1.5 text-xs text-ink-soft">
+                {c}
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </article>
+  </div>
+</section>

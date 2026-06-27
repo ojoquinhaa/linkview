@@ -1,0 +1,45 @@
+---
+import Icon from "./Icon.astro";
+
+// Link-styled CTA. Primary = accent fill, secondary = bordered paper. Matches
+// the app's button language (radius, focus ring, 150ms ease).
+interface Props {
+  href: string;
+  variant?: "primary" | "secondary";
+  size?: "md" | "lg";
+  class?: string;
+  withArrow?: boolean;
+}
+const {
+  href,
+  variant = "primary",
+  size = "md",
+  class: className = "",
+  withArrow = false,
+} = Astro.props;
+
+const base =
+  "group inline-flex items-center justify-center gap-2 rounded-input font-medium transition-[transform,background-color,border-color,box-shadow] duration-150 ease-[var(--ease-out-quint)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] active:translate-y-px";
+const sizes = {
+  md: "h-11 px-5 text-[0.95rem]",
+  lg: "h-13 px-7 text-base",
+};
+const variants = {
+  primary:
+    "bg-accent text-accent-ink shadow-[0_1px_2px_oklch(0.42_0.16_265/0.35),0_8px_20px_-8px_oklch(0.42_0.16_265/0.5)] hover:bg-accent-deep",
+  secondary:
+    "border border-line-strong bg-surface text-ink hover:border-accent-line hover:bg-paper-sunk",
+};
+---
+
+<a href={href} class={`${base} ${sizes[size]} ${variants[variant]} ${className}`}>
+  <slot />
+  {
+    withArrow && (
+      <Icon
+        name="arrowRight"
+        class="h-4 w-4 transition-transform duration-150 ease-[var(--ease-out-quint)] group-hover:translate-x-0.5"
+      />
+    )
+  }
+</a>

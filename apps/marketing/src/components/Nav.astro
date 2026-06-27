@@ -1,0 +1,39 @@
+---
+import { LOGIN_URL, REGISTER_URL } from "@/lib/site";
+import Button from "./Button.astro";
+import Wordmark from "./Wordmark.astro";
+---
+
+<header
+  class="sticky top-0 z-50 border-b border-line/70 bg-paper/80 backdrop-blur-md"
+>
+  <nav
+    class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8"
+  >
+    <a
+      href="/"
+      class="rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--ring)]"
+      aria-label="Linkview, página inicial"
+    >
+      <Wordmark />
+    </a>
+    <div class="flex items-center gap-1 sm:gap-3">
+      <a
+        href="#recursos"
+        class="hidden rounded-md px-3 py-2 text-sm text-ink-soft transition-colors hover:text-ink md:inline-flex"
+        >Recursos</a
+      >
+      <a
+        href="#preco"
+        class="hidden rounded-md px-3 py-2 text-sm text-ink-soft transition-colors hover:text-ink md:inline-flex"
+        >Preço</a
+      >
+      <a
+        href={LOGIN_URL}
+        class="rounded-md px-3 py-2 text-sm text-ink-soft transition-colors hover:text-ink"
+        >Entrar</a
+      >
+      <Button href={REGISTER_URL}>Teste grátis</Button>
+    </div>
+  </nav>
+</header>

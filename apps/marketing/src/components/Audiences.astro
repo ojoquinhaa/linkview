@@ -1,0 +1,29 @@
+---
+const audiences = [
+  "Agências de marketing",
+  "Gestores de tráfego",
+  "Social media",
+  "Empresas",
+  "Profissionais de vendas",
+  "Criadores de conteúdo",
+];
+---
+
+<section class="border-y border-line bg-paper-sunk/50">
+  <div class="mx-auto max-w-5xl px-5 py-16 text-center sm:px-8">
+    <h2
+      class="font-display text-[clamp(1.6rem,3.2vw,2.1rem)] font-semibold tracking-tight text-balance text-ink"
+    >
+      Feito para quem mede resultados
+    </h2>
+    <ul class="mt-8 flex flex-wrap justify-center gap-2.5">
+      {
+        audiences.map((a) => (
+          <li class="rounded-full border border-line bg-surface px-4 py-2 text-sm text-ink-soft">
+            {a}
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>

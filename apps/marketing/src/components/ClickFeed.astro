@@ -1,0 +1,41 @@
+---
+// The live click feed inside the hero product mock. A continuous vertical
+// marquee of realistic Brazilian click events. The list is rendered twice so
+// the -50% translate loops seamlessly. Static (no JS), reduced-motion safe.
+const rows = [
+  { t: "agora", city: "São Paulo, SP", dev: "iPhone", ch: "Instagram" },
+  { t: "há 3s", city: "Belo Horizonte, MG", dev: "Android", ch: "WhatsApp" },
+  { t: "há 6s", city: "Curitiba, PR", dev: "Desktop", ch: "Google" },
+  { t: "há 9s", city: "Recife, PE", dev: "iPhone", ch: "TikTok" },
+  { t: "há 12s", city: "Porto Alegre, RS", dev: "Android", ch: "Direto" },
+  { t: "há 15s", city: "Salvador, BA", dev: "iPhone", ch: "Instagram" },
+];
+const loop = [...rows, ...rows];
+---
+
+<div
+  class="relative h-36 overflow-hidden"
+  style="mask-image:linear-gradient(180deg,transparent,#000 18%,#000 82%,transparent);-webkit-mask-image:linear-gradient(180deg,transparent,#000 18%,#000 82%,transparent)"
+>
+  <ul class="animate-feed">
+    {
+      loop.map((r) => (
+        <li class="flex h-12 items-center justify-between gap-3">
+          <span class="flex min-w-0 items-center gap-2.5">
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+            <span class="truncate text-sm text-ink">{r.city}</span>
+            <span class="hidden shrink-0 text-xs text-muted sm:inline">
+              {r.dev}
+            </span>
+          </span>
+          <span class="flex shrink-0 items-center gap-2.5">
+            <span class="rounded-full bg-paper-sunk px-2 py-0.5 text-xs font-medium text-ink-soft">
+              {r.ch}
+            </span>
+            <span class="nums w-12 text-right text-xs text-muted">{r.t}</span>
+          </span>
+        </li>
+      ))
+    }
+  </ul>
+</div>

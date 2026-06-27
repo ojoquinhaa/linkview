@@ -1,0 +1,63 @@
+---
+import { proPriceLabel, REGISTER_URL } from "@/lib/site";
+import Button from "./Button.astro";
+import Icon from "./Icon.astro";
+
+const perks = [
+  "Links e QR Codes ilimitados",
+  "Analytics em tempo real",
+  "Cancele a qualquer momento",
+];
+---
+
+<section id="preco" class="mx-auto max-w-6xl px-5 py-[clamp(4rem,9vw,7rem)] sm:px-8">
+  <div
+    class="grid items-center gap-px overflow-hidden rounded-3xl border border-accent-line bg-accent-line/60 md:grid-cols-[1.2fr_0.8fr]"
+  >
+    <!-- Offer -->
+    <div class="bg-accent-weak p-8 sm:p-10">
+      <h2
+        class="font-display text-[clamp(1.8rem,3.6vw,2.5rem)] leading-tight font-bold tracking-[-0.02em] text-balance text-ink"
+      >
+        Teste grátis por 7 dias
+      </h2>
+      <p class="mt-3 max-w-md text-[0.98rem] leading-relaxed text-ink-soft">
+        Experimente todas as funcionalidades, sem compromisso. Depois do teste,
+        siga no Linkview sem complicação e sem contratos longos.
+      </p>
+      <ul class="mt-7 space-y-3">
+        {
+          perks.map((p) => (
+            <li class="flex items-center gap-3 text-[0.98rem] text-ink">
+              <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink">
+                <Icon name="check" class="h-3 w-3" />
+              </span>
+              {p}
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <!-- Price + CTA -->
+    <div class="flex flex-col justify-center bg-surface p-8 sm:p-10">
+      <p class="text-sm text-muted">A partir de</p>
+      <p class="mt-1 flex items-baseline gap-1">
+        <span
+          class="nums font-display text-5xl font-semibold tracking-tight text-ink"
+          >{proPriceLabel}</span
+        >
+        <span class="text-base text-muted">/mês</span>
+      </p>
+      <p class="mt-2 text-sm text-ink-soft">
+        Sem complicação. Sem contratos longos.
+      </p>
+      <Button href={REGISTER_URL} size="lg" class="mt-7 w-full" withArrow>
+        Começar agora
+      </Button>
+      <p class="mt-3 text-center text-xs text-muted">
+        Comece com 7 dias grátis, sem cartão.
+      </p>
+    </div>
+  </div>
+</section>

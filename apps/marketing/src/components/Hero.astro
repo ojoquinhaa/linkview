@@ -1,0 +1,136 @@
+---
+import { REGISTER_URL, SHORT_DOMAIN } from "@/lib/site";
+import Button from "./Button.astro";
+import ClickFeed from "./ClickFeed.astro";
+import Icon from "./Icon.astro";
+---
+
+<section class="relative overflow-hidden">
+  <!-- Atmosphere: soft indigo light from the top-right + a generated brand
+       texture behind the mock. Both decorative; the page reads without them. -->
+  <div
+    class="pointer-events-none absolute inset-0 -z-10"
+    style="background:radial-gradient(60rem 40rem at 82% -10%, var(--accent-weak), transparent 60%)"
+    aria-hidden="true"
+  >
+  </div>
+
+  <div
+    class="mx-auto grid max-w-6xl items-center gap-14 px-5 pt-16 pb-[clamp(5rem,10vw,8rem)] sm:px-8 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10 lg:pt-24"
+  >
+    <!-- Copy -->
+    <div class="animate-rise">
+      <p
+        class="mb-6 inline-flex items-center gap-2 rounded-full border border-accent-line bg-surface/70 py-1.5 pr-4 pl-2.5 text-sm text-ink-soft"
+      >
+        <span
+          class="flex h-4 w-4 items-center justify-center rounded-full bg-accent-weak"
+        >
+          <span class="animate-dot h-1.5 w-1.5 rounded-full bg-accent"></span>
+        </span>
+        Cliques em tempo real
+      </p>
+
+      <h1
+        class="font-display text-[clamp(2.5rem,6vw,4.25rem)] leading-[1.02] font-bold tracking-[-0.02em] text-balance text-ink"
+      >
+        Crie links e QR Codes que você
+        <span class="text-accent">consegue medir</span>.
+      </h1>
+
+      <p
+        class="mt-6 max-w-xl text-[1.075rem] leading-relaxed text-pretty text-ink-soft"
+      >
+        Saiba quantas pessoas clicaram, quando clicaram e de onde vieram.
+        Acompanhe seus resultados ao vivo, em português e em reais.
+      </p>
+
+      <div class="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Button href={REGISTER_URL} size="lg" withArrow>
+          Teste grátis por 7 dias
+        </Button>
+        <Button href="#recursos" variant="secondary" size="lg">
+          Ver o que dá pra fazer
+        </Button>
+      </div>
+
+      <p class="mt-5 flex items-center gap-2 text-sm text-muted">
+        <Icon name="check" class="h-4 w-4 text-ok" />
+        Sem cartão de crédito
+        <span class="text-line-strong">·</span>
+        Cancele quando quiser
+      </p>
+    </div>
+
+    <!-- Product mock: a real-looking dashboard surface with the live feed. -->
+    <div class="animate-rise [animation-delay:120ms]">
+      <div class="relative mx-auto max-w-md lg:mr-0 lg:ml-auto">
+        <div
+          class="rounded-[1.25rem] border border-line bg-surface p-5 shadow-[0_2px_4px_oklch(0.42_0.16_265/0.04),0_24px_60px_-24px_oklch(0.42_0.16_265/0.28)]"
+        >
+          <!-- Card head: the short link + live badge -->
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex min-w-0 items-center gap-2 font-mono text-sm">
+              <span class="truncate text-muted">{SHORT_DOMAIN}/</span><span
+                class="truncate font-medium text-accent">promo-junho</span
+              >
+            </div>
+            <span
+              class="flex shrink-0 items-center gap-1.5 rounded-full bg-accent-weak px-2.5 py-1 text-xs font-medium text-accent-deep"
+            >
+              <span class="animate-dot h-1.5 w-1.5 rounded-full bg-accent"
+              ></span>
+              ao vivo
+            </span>
+          </div>
+
+          <!-- Headline metric -->
+          <div class="mt-5 flex items-end justify-between">
+            <div>
+              <p class="text-xs tracking-wide text-muted uppercase">
+                Cliques hoje
+              </p>
+              <p
+                class="nums mt-1 font-display text-4xl font-semibold tracking-tight text-ink"
+              >
+                1.248
+              </p>
+            </div>
+            <p
+              class="mb-1 flex items-center gap-1 text-sm font-medium text-ok"
+            >
+              <Icon name="trending" class="h-4 w-4" />
+              +18%
+            </p>
+          </div>
+
+          <div class="my-4 h-px bg-line"></div>
+
+          <p class="mb-1 text-xs tracking-wide text-muted uppercase">
+            Acabaram de clicar
+          </p>
+          <ClickFeed />
+
+          <!-- Dimension chips: what the report breaks down by -->
+          <div class="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
+            <span
+              class="inline-flex items-center gap-1.5 rounded-lg bg-paper-sunk px-2.5 py-1.5 text-xs text-ink-soft"
+            >
+              <Icon name="pin" class="h-3.5 w-3.5 text-muted" /> 27 cidades
+            </span>
+            <span
+              class="inline-flex items-center gap-1.5 rounded-lg bg-paper-sunk px-2.5 py-1.5 text-xs text-ink-soft"
+            >
+              <Icon name="phone" class="h-3.5 w-3.5 text-muted" /> 71% mobile
+            </span>
+            <span
+              class="inline-flex items-center gap-1.5 rounded-lg bg-paper-sunk px-2.5 py-1.5 text-xs text-ink-soft"
+            >
+              <Icon name="activity" class="h-3.5 w-3.5 text-muted" /> Instagram lidera
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

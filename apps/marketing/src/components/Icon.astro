@@ -1,0 +1,36 @@
+---
+// Single line-icon set (stroke 1.5, 24-grid, currentColor) so the whole page
+// shares one coherent icon language. Add a glyph here before using it.
+interface Props {
+  name: keyof typeof ICONS;
+  class?: string;
+}
+const { name, class: className = "h-5 w-5" } = Astro.props;
+
+const ICONS = {
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  qr: '<rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><path d="M14 14h3v3"/><path d="M21 21v.01"/><path d="M17 21h.01"/><path d="M21 17v.01"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  chart: '<path d="M3 3v17a1 1 0 0 0 1 1h17"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  megaphone: '<path d="m3 11 15-5v13L3 14z"/><path d="M11.6 16.8a3 3 0 1 1-5.6-1.8"/><path d="M18 8a3 3 0 0 1 0 6"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  arrowRight: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  trending: '<path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/>',
+  pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
+  phone: '<rect width="13" height="20" x="5.5" y="2" rx="2.5"/><path d="M11 18h2"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/>',
+} as const;
+---
+
+<svg
+  class={className}
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+  set:html={ICONS[name]}
+/>
