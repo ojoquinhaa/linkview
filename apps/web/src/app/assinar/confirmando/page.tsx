@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { SupportFab } from "@/components/support-fab";
 import { Wordmark } from "@/components/wordmark";
 import {
   getWorkspaceSubscription,
@@ -50,6 +51,8 @@ export default async function ConfirmandoPage() {
       <main className="relative z-10 grid flex-1 place-items-center px-6 pb-16">
         <Confirming />
       </main>
+
+      <SupportFab />
     </div>
   );
 }

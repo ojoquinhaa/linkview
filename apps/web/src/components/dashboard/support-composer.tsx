@@ -19,20 +19,28 @@ const CATEGORIES = [
 
 type CategoryKey = (typeof CATEGORIES)[number]["key"];
 
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 export function SupportComposer({
-  name,
-  email,
+  name: initialName,
+  email: initialEmail,
   workspaceName,
   planLabel,
+  editableContact = false,
 }: {
   name: string;
   email: string;
-  workspaceName: string;
-  planLabel: string;
+  /** Omitted on the public form: there's no workspace before sign-in. */
+  workspaceName?: string;
+  planLabel?: string;
+  /** Public form: the visitor types their own name + e-mail. */
+  editableContact?: boolean;
 }) {
   const [category, setCategory] = useState<CategoryKey>("duvida");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const [name, setName] = useState(initialName);
+  const [email, setEmail] = useState(initialEmail);
 
   const categoryLabel =
     CATEGORIES.find((c) => c.key === category)?.label ?? "Dúvida";
@@ -41,7 +49,7 @@ export function SupportComposer({
     const head = subject.trim()
       ? `${categoryLabel} — ${subject.trim()}`
       : categoryLabel;
-    return [
+    const lines = [
       "*Suporte linkview*",
       "",
       `*Assunto:* ${head}`,
@@ -49,13 +57,18 @@ export function SupportComposer({
       message.trim() || "(descreva aqui)",
       "",
       "———",
-      `*Cliente:* ${name || "—"}`,
-      `*E-mail:* ${email}`,
-      `*Workspace:* ${workspaceName} · *Plano:* ${planLabel}`,
-    ].join("\n");
+      `*Cliente:* ${name.trim() || "—"}`,
+      `*E-mail:* ${email.trim() || "—"}`,
+    ];
+    if (workspaceName) {
+      lines.push(`*Workspace:* ${workspaceName} · *Plano:* ${planLabel ?? "—"}`);
+    }
+    return lines.join("\n");
   }, [categoryLabel, subject, message, name, email, workspaceName, planLabel]);
 
-  const canSend = message.trim().length > 0;
+  const contactOk =
+    !editableContact || (name.trim().length > 0 && EMAIL_RE.test(email.trim()));
+  const canSend = message.trim().length > 0 && contactOk;
 
   function open() {
     if (!canSend) return;
@@ -72,6 +85,35 @@ export function SupportComposer({
           open();
         }}
       >
+        {editableContact && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Seu nome" htmlFor="suporte-nome">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                  placeholder="Como te chamamos"
+                />
+              )}
+            </Field>
+            <Field label="Seu e-mail" htmlFor="suporte-email">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  type="email"
+                  inputMode="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  placeholder="voce@empresa.com.br"
+                />
+              )}
+            </Field>
+          </div>
+        )}
+
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-2 text-[0.82rem] font-medium text-ink-soft">
             Sobre o que é?

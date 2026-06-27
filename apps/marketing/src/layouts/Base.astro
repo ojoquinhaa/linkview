@@ -1,5 +1,6 @@
 ---
 import "@/styles/global.css";
+import SupportFab from "@/components/SupportFab.astro";
 
 interface Props {
   title?: string;
@@ -44,5 +45,6 @@ const ogImage = new URL("/og.png", Astro.site);
   </head>
   <body class="min-h-screen overflow-x-hidden antialiased">
     <slot />
+    <SupportFab />
   </body>
 </html>

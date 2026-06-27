@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ShortLinkTicker } from "@/components/auth/short-link-ticker";
+import { SupportFab } from "@/components/support-fab";
 import { Wordmark } from "@/components/wordmark";
 
 export default function AuthLayout({
@@ -27,6 +28,8 @@ export default function AuthLayout({
       <footer className="relative z-10 flex items-center justify-center gap-3 px-6 py-7 text-center">
         <ShortLinkTicker />
       </footer>
+
+      <SupportFab />
     </div>
   );
 }

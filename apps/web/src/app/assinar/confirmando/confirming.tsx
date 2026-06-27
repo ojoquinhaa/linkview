@@ -125,18 +125,29 @@ export function Confirming() {
         ))}
       </ol>
 
-      {slow && (
-        <div className="mt-6 border-t border-line pt-5">
-          <p className="flex items-center justify-center gap-2 text-[0.8rem] text-muted">
-            <Spinner className="size-3.5 text-accent" />
-            Verificando automaticamente
-          </p>
+      {!done && (
+        <div className="mt-6 border-t border-line pt-5 text-center">
+          {slow && (
+            <p className="flex items-center justify-center gap-2 text-[0.8rem] text-muted">
+              <Spinner className="size-3.5 text-accent" />
+              Verificando automaticamente
+            </p>
+          )}
           <Link
-            href="/"
-            className="mt-4 block text-center text-[0.85rem] font-medium text-accent hover:underline"
+            href="/dashboard/links"
+            className={cn(
+              "block text-[0.85rem] font-medium text-accent hover:underline",
+              slow && "mt-4",
+            )}
           >
-            Voltar ao início
+            Ir para o painel
           </Link>
+          {!slow && (
+            <p className="mt-2 text-[0.78rem] leading-relaxed text-muted">
+              Você pode sair desta tela. O pagamento continua sendo confirmado e
+              avisamos por e-mail quando cair.
+            </p>
+          )}
         </div>
       )}
     </div>
