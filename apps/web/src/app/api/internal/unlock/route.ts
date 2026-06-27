@@ -9,12 +9,16 @@ import { verifyPassword } from "@/lib/password";
  * never leaves the server; only a boolean result is returned.
  */
 export async function POST(request: Request) {
+  // Fail closed: without a configured token this becomes a password-verification
+  // oracle for any protected link. Reject rather than wave the request through.
   const token = clickIngestToken();
-  if (token) {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${token}`) {
-      return Response.json({ ok: false }, { status: 401 });
-    }
+  if (!token) {
+    console.error("unlock.ingest_token_unset");
+    return Response.json({ ok: false }, { status: 503 });
+  }
+  const auth = request.headers.get("authorization");
+  if (auth !== `Bearer ${token}`) {
+    return Response.json({ ok: false }, { status: 401 });
   }
 
   let body: unknown;

@@ -89,6 +89,30 @@ export async function rateLimited(
 	return false;
 }
 
+/** Max password attempts per IP per link per minute, regardless of whether the
+ * link owner configured a redirect rate limit. Caps brute-forcing of a link's
+ * password (the form has only a 4-char minimum). */
+const UNLOCK_MAX_ATTEMPTS_PER_MINUTE = 8;
+
+/**
+ * Per-IP throttle on password submissions for a protected link. Separate KV
+ * namespace from the redirect rate limit so the two never share a counter.
+ * Best-effort (KV is eventually consistent); returns true when the attempt
+ * should be rejected.
+ */
+export async function unlockRateLimited(
+	env: Bindings,
+	linkId: string,
+	ipHash: string,
+): Promise<boolean> {
+	const bucket = Math.floor(Date.now() / 60_000);
+	const key = `pwrl:${linkId}:${ipHash}:${bucket}`;
+	const current = Number((await env.LINKS_KV.get(key)) ?? "0");
+	if (current >= UNLOCK_MAX_ATTEMPTS_PER_MINUTE) return true;
+	await env.LINKS_KV.put(key, String(current + 1), { expirationTtl: 120 });
+	return false;
+}
+
 /** Ask the web app to verify a submitted password against Postgres (§14.5). */
 export async function verifyPasswordRemote(
 	env: Bindings,

@@ -92,12 +92,18 @@ async function enforceClickCap(
 
 /** Ingest a click from the redirect Worker (§11.5). Bearer-protected. */
 export async function POST(request: Request) {
+  // Fail closed: without a configured token, anyone could POST forged clicks —
+  // poisoning analytics and, worse, tripping a victim link's click cap to
+  // deactivate it. Reject rather than wave the request through (matches the
+  // billing webhook / cron behaviour).
   const token = clickIngestToken();
-  if (token) {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${token}`) {
-      return Response.json({ error: "unauthorized" }, { status: 401 });
-    }
+  if (!token) {
+    console.error("clicks.ingest_token_unset");
+    return Response.json({ error: "not_configured" }, { status: 503 });
+  }
+  const auth = request.headers.get("authorization");
+  if (auth !== `Bearer ${token}`) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
   let body: unknown;

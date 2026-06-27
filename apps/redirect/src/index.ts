@@ -14,6 +14,7 @@ import {
 	rateLimited,
 	unlockCookieName,
 	unlockPage,
+	unlockRateLimited,
 	verifyPasswordRemote,
 	verifyUnlockToken,
 } from "./security";
@@ -312,6 +313,21 @@ app.post("/:slug", async (c) => {
 	if (!link.passwordProtected) {
 		// Nothing to submit; treat as a normal visit.
 		return doRedirect(c, link);
+	}
+
+	// Throttle password guessing per IP, independent of the owner's redirect
+	// rate limit, so a protected link can't be brute-forced.
+	const ip = clientIp(c.req.raw);
+	if (ip) {
+		const ipHash = await hashIp(ip, c.env.IP_HASH_SALT);
+		if (await unlockRateLimited(c.env, link.linkId, ipHash)) {
+			return errorPage(
+				"Muitas tentativas",
+				"Você tentou a senha várias vezes. Aguarde um minuto e tente de novo.",
+				429,
+				"ratelimit",
+			);
+		}
 	}
 
 	const form = await c.req.formData();

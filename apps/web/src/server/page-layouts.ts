@@ -18,11 +18,12 @@ import { getPageLayout } from "./page-layouts-query";
 import { requireSession } from "./session";
 import { getActiveWorkspace } from "./workspace";
 
+// SVG is intentionally excluded: it can carry inline scripts (stored-XSS risk
+// if ever served on a trusted origin). Matches the OG-image allowlist.
 const EXT: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/webp": "webp",
-  "image/svg+xml": "svg",
   "image/gif": "gif",
 };
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -73,7 +74,7 @@ export async function requestLayoutUploadAction(input: {
   }
   const ext = EXT[input.contentType];
   if (!ext) {
-    return { ok: false, error: "Use uma imagem PNG, JPG, WebP, SVG ou GIF." };
+    return { ok: false, error: "Use uma imagem PNG, JPG, WebP ou GIF." };
   }
   if (input.size > MAX_BYTES) {
     return { ok: false, error: "Imagem muito grande (máximo 8 MB)." };
