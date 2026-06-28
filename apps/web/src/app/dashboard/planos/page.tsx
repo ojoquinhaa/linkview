@@ -5,7 +5,10 @@ import {
   TRIAL_DURATION_DAYS,
 } from "@linkview/shared";
 import { redirect } from "next/navigation";
-import { getWorkspaceSubscription } from "@/server/billing/subscription";
+import {
+  getWorkspaceSubscription,
+  resolveSubscriptionAccess,
+} from "@/server/billing/subscription";
 import { getTrialStatus } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
@@ -51,9 +54,10 @@ export default async function PlanosPage() {
   if (!workspace) redirect("/login");
 
   const sub = await getWorkspaceSubscription(workspace.id);
-  // The dashboard layout already guarantees an active/trialing subscription;
-  // bail defensively if that ever changes.
-  if (!sub) redirect("/assinar");
+  // This page renders the *active* plan UI. A locked (lapsed-billing) workspace
+  // can still reach the dashboard read-only, but reactivation lives on /assinar
+  // — send it there rather than rendering a misleading "active" panel.
+  if (!sub || resolveSubscriptionAccess(sub) !== "full") redirect("/assinar");
 
   const onTrial = sub.status === "trialing";
   const trial = onTrial ? await getTrialStatus(workspace.id) : null;

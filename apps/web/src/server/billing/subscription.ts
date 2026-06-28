@@ -12,6 +12,7 @@ import {
   type BillingCycle,
   getCyclePriceCents,
   getPlan,
+  PAST_DUE_GRACE_DAYS,
   type PlanKey,
 } from "@linkview/shared";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -20,7 +21,10 @@ import {
   sendPaymentReceiptEmail,
   sendSubscriptionCanceledEmail,
 } from "@/lib/email";
+import { unlockWorkspaceLinks } from "@/lib/kv";
 import * as asaas from "./asaas";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Asaas payment statuses that mean the money cleared. */
 const PAID_STATUSES = new Set(["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"]);
@@ -228,7 +232,10 @@ export async function startSubscription(
 
   // One subscription row per workspace: refresh it on re-checkout.
   const [existing] = await db
-    .select({ id: subscriptions.id })
+    .select({
+      id: subscriptions.id,
+      providerSubscriptionId: subscriptions.providerSubscriptionId,
+    })
     .from(subscriptions)
     .where(eq(subscriptions.workspaceId, workspaceId))
     .limit(1);
@@ -246,6 +253,20 @@ export async function startSubscription(
         canceledAt: null,
       })
       .where(eq(subscriptions.id, existing.id));
+    // The new Asaas subscription supersedes any prior one for this workspace.
+    // Cancel the old one so its leftover (often overdue) charges stop competing
+    // — otherwise `getOpenInvoiceUrl` can keep surfacing a stale invoice and the
+    // user pays into a dead subscription. Best-effort: never block checkout.
+    if (
+      existing.providerSubscriptionId &&
+      existing.providerSubscriptionId !== sub.id
+    ) {
+      await asaas
+        .cancelSubscription(existing.providerSubscriptionId)
+        .catch((err) =>
+          console.error("billing.stale_subscription_cancel_failed", err),
+        );
+    }
   } else {
     await db.insert(subscriptions).values({
       workspaceId,
@@ -296,6 +317,40 @@ export async function getWorkspaceSubscription(
     .where(eq(subscriptions.workspaceId, workspaceId))
     .limit(1);
   return row ?? null;
+}
+
+export type WorkspaceAccess = "full" | "locked" | "none";
+
+/**
+ * Single source of truth for what a workspace's billing state grants. Every
+ * gate — the dashboard layout, the write-action guard, the redirect Worker's
+ * KV flag — derives from this so they never disagree:
+ *
+ *  - `full`   active/trialing, OR a paid period that hasn't lapsed yet. The
+ *             period still covers them even when a *new* charge is `pending`
+ *             (a re-checkout mid-upgrade) or the latest charge went `past_due`
+ *             within the tolerance window. Links live, writes allowed.
+ *  - `locked` the workspace paid at least once but the paid period has lapsed
+ *             (expired / canceled / unpaid / past-due beyond grace, or an
+ *             abandoned re-checkout whose period ran out). Read-only dashboard,
+ *             links dark — kept reachable until the retention job purges it, so
+ *             the user can pay and come back instead of being trapped.
+ *  - `none`   never completed a payment: onboarding belongs on /assinar.
+ */
+export function resolveSubscriptionAccess(
+  sub: WorkspaceSubscription | null,
+): WorkspaceAccess {
+  if (!sub) return "none";
+  if (sub.status === "active" || sub.status === "trialing") return "full";
+  const periodEndMs = sub.currentPeriodEnd?.getTime() ?? null;
+  if (periodEndMs != null) {
+    const accessUntil =
+      sub.status === "past_due"
+        ? periodEndMs + PAST_DUE_GRACE_DAYS * DAY_MS
+        : periodEndMs;
+    return accessUntil > Date.now() ? "full" : "locked";
+  }
+  return "none";
 }
 
 /**
@@ -358,6 +413,9 @@ export async function reconcilePendingSubscription(
       .set({ planKey: plan.key })
       .where(eq(workspaces.id, workspaceId));
   }
+
+  // Billing is healthy again: bring the workspace's links back online.
+  await unlockWorkspaceLinks(workspaceId);
 
   // A converting trial is exempt from the retention purge.
   await db
@@ -573,6 +631,9 @@ export async function resumeSubscription(workspaceId: string): Promise<void> {
       canceledAt: null,
     })
     .where(eq(subscriptions.id, row.id));
+
+  // Defensive: ensure the workspace's links are online again.
+  await unlockWorkspaceLinks(workspaceId);
 }
 
 /** Asaas payment statuses that are still awaiting payment. */

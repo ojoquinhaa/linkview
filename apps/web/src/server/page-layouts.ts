@@ -14,6 +14,7 @@ import { r2Configured } from "@/lib/env";
 import { resyncLink, resyncLinksUsingLayout } from "@/lib/link-sync";
 import { presignUpload } from "@/lib/r2";
 import { logAudit } from "./audit";
+import { LOCKED_WRITE_MESSAGE, workspaceCanWrite } from "./billing/guard";
 import { getPageLayout } from "./page-layouts-query";
 import { requireSession } from "./session";
 import { getActiveWorkspace } from "./workspace";
@@ -32,13 +33,24 @@ type Guard =
   | { ok: false; error: string }
   | { ok: true; workspaceId: string; planKey: PlanKey; userId: string };
 
-/** Shared auth + plan gate for layout mutations (Starter+ feature). */
-async function guard(): Promise<Guard> {
+/**
+ * Shared auth + plan gate for layout mutations (Starter+ feature). Pass
+ * `write: false` for actions that may still run while billing is locked
+ * (deletes); the default blocks mutations on a read-only workspace.
+ */
+async function guard({
+  write = true,
+}: {
+  write?: boolean;
+} = {}): Promise<Guard> {
   const session = await requireSession();
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) return { ok: false, error: "Nenhum workspace ativo." };
   if (!can(workspace.role, "link.edit")) {
     return { ok: false, error: "Sem permissão para editar." };
+  }
+  if (write && !(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
   }
   const planKey = (workspace.planKey as PlanKey) ?? "free";
   if (!getPlan(planKey).customSplashEnabled) {
@@ -197,7 +209,7 @@ export async function updatePageLayoutAction(
 export async function deletePageLayoutAction(
   id: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const g = await guard();
+  const g = await guard({ write: false });
   if (!g.ok) return { ok: false, error: g.error };
 
   const existing = await getPageLayout(g.workspaceId, id);

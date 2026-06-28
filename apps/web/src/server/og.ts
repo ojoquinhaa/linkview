@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { r2Configured } from "@/lib/env";
 import { presignUpload } from "@/lib/r2";
 import { logAudit } from "./audit";
+import { LOCKED_WRITE_MESSAGE, workspaceCanWrite } from "./billing/guard";
 import { requireSession } from "./session";
 import { getActiveWorkspace } from "./workspace";
 
@@ -64,6 +65,9 @@ export async function requestOgUploadAction(input: {
   if (!can(workspace.role, "link.edit")) {
     return { ok: false, error: "Sem permissão para editar links." };
   }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
+  }
   const link = await ownedLink(input.linkId, workspace.id);
   if (!link) return { ok: false, error: "Link não encontrado." };
 
@@ -99,6 +103,9 @@ export async function updateLinkOgAction(
   if (!workspace) return { ok: false, error: "Nenhum workspace ativo." };
   if (!can(workspace.role, "link.edit")) {
     return { ok: false, error: "Sem permissão para editar links." };
+  }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
   }
   const link = await ownedLink(linkId, workspace.id);
   if (!link) return { ok: false, error: "Link não encontrado." };

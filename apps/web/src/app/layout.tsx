@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -19,10 +19,38 @@ const mono = JetBrains_Mono({
   weight: ["400", "500"],
 });
 
+const title =
+  "Linkview — links e QR Codes rastreáveis, com cliques em tempo real";
+const description =
+  "Crie links curtos e QR Codes que mostram quantas pessoas clicaram, quando e de onde. Analytics em tempo real, em português, em reais. Teste grátis por 7 dias, sem cartão.";
+
 export const metadata: Metadata = {
-  title: "linkview — links que você entende",
-  description:
-    "Crie links curtos, QR Codes e campanhas. Veja de onde vêm os cliques. Simples, em português, em reais.",
+  metadataBase: new URL("https://app.linkview.com.br"),
+  title: {
+    default: title,
+    template: "%s · Linkview",
+  },
+  description,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "pt_BR",
+    siteName: "Linkview",
+    title,
+    description,
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#4b46cf",
 };
 
 export default function RootLayout({

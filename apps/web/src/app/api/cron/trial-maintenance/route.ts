@@ -10,6 +10,7 @@ import {
   TRIAL_RETENTION_DAYS,
 } from "@linkview/shared";
 import { and, eq, inArray, isNull, lt } from "drizzle-orm";
+import { lockWorkspaceLinks } from "@/lib/kv";
 
 /**
  * Trial maintenance job. Runs on a schedule (Vercel Cron / external trigger),
@@ -54,6 +55,8 @@ async function runMaintenance() {
           eq(workspaces.planKey, "trial"),
         ),
       );
+    // No active plan: take the workspace's links offline.
+    await lockWorkspaceLinks(row.workspaceId);
   }
 
   // Pass 1b — close the grace period on canceled paid subscriptions. A cancel
@@ -76,6 +79,7 @@ async function runMaintenance() {
       .update(workspaces)
       .set({ planKey: "free" })
       .where(eq(workspaces.id, row.workspaceId));
+    await lockWorkspaceLinks(row.workspaceId);
   }
 
   // Pass 1b2 — cut access on past-due subscriptions past the tolerance window.
@@ -100,6 +104,30 @@ async function runMaintenance() {
       .update(workspaces)
       .set({ planKey: "free" })
       .where(eq(workspaces.id, row.workspaceId));
+    await lockWorkspaceLinks(row.workspaceId);
+  }
+
+  // Pass 1b3 — a re-checkout left the subscription `pending`, but the paid
+  // period it was riding on has now lapsed (the user abandoned the new payment).
+  // Expire it so it stops granting access and eventually purges, and dark its
+  // links. Rows with no `currentPeriodEnd` (never paid) are left for onboarding.
+  const pendingLapsed = await db
+    .update(subscriptions)
+    .set({ status: "expired" })
+    .where(
+      and(
+        eq(subscriptions.status, "pending"),
+        lt(subscriptions.currentPeriodEnd, now),
+      ),
+    )
+    .returning({ workspaceId: subscriptions.workspaceId });
+
+  for (const row of pendingLapsed) {
+    await db
+      .update(workspaces)
+      .set({ planKey: "free" })
+      .where(eq(workspaces.id, row.workspaceId));
+    await lockWorkspaceLinks(row.workspaceId);
   }
 
   // Pass 1c — retention purge for ended paid subscriptions. A workspace whose
@@ -170,6 +198,7 @@ async function runMaintenance() {
     expired: expired.length,
     lapsed: lapsed.length,
     overdue: overdue.length,
+    pendingLapsed: pendingLapsed.length,
     purgedPaid,
     purged,
   };
