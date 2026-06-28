@@ -4,6 +4,7 @@ import { getDb, links, qrCodes } from "@linkview/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { logAudit } from "./audit";
+import { LOCKED_WRITE_MESSAGE, workspaceCanWrite } from "./billing/guard";
 import { requireSession } from "./session";
 import { getActiveWorkspace } from "./workspace";
 
@@ -48,6 +49,9 @@ export async function createQrCodeAction(
   if (!workspace) return { ok: false, error: "Nenhum workspace ativo." };
   if (!can(workspace.role, "link.edit")) {
     return { ok: false, error: "Sem permissão para editar links." };
+  }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
   }
   const link = await ownedLink(linkId, workspace.id);
   if (!link) return { ok: false, error: "Link não encontrado." };
@@ -112,6 +116,9 @@ export async function renameQrCodeAction(
     .where(and(eq(qrCodes.id, qrCodeId), eq(qrCodes.workspaceId, workspace.id)))
     .limit(1);
   if (!qr) return { ok: false, error: "QR code não encontrado." };
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
+  }
 
   await db.update(qrCodes).set({ name: label }).where(eq(qrCodes.id, qrCodeId));
 

@@ -9,8 +9,11 @@ import {
 } from "@linkview/shared";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { LOCKED_WRITE_MESSAGE, workspaceCanWrite } from "./billing/guard";
 import { requireSession } from "./session";
 import { getActiveWorkspace } from "./workspace";
+
+const LOCKED = LOCKED_WRITE_MESSAGE;
 
 interface Ok<T = undefined> {
   ok: true;
@@ -53,6 +56,9 @@ export async function createBioPage(input: {
   const { workspace } = await ctx();
   if (!can(workspace.role, "link.create")) {
     return { ok: false, error: "Sem permissão." };
+  }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED };
   }
   if (!getPlan(workspace.planKey as PlanKey).bioPagesEnabled) {
     return { ok: false, error: "Seu plano não inclui páginas de links." };
@@ -101,6 +107,9 @@ export async function updateBioPageMeta(
   if (!(await assertOwnsPage(workspace.id, pageId))) {
     return { ok: false, error: "Página não encontrada." };
   }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED };
+  }
   const db = getDb();
   await db
     .update(bioPages)
@@ -144,6 +153,9 @@ export async function addBioLink(
   }
   if (!(await assertOwnsPage(workspace.id, pageId))) {
     return { ok: false, error: "Página não encontrada." };
+  }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED };
   }
   const label = input.label.trim().slice(0, 120);
   const url = input.url.trim().slice(0, 2048);
@@ -193,6 +205,9 @@ export async function updateBioLink(
   }
   const pageId = await assertOwnsLink(workspace.id, linkId);
   if (!pageId) return { ok: false, error: "Botão não encontrado." };
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED };
+  }
   const label = input.label.trim().slice(0, 120);
   const url = input.url.trim().slice(0, 2048);
   if (!label) return { ok: false, error: "Dê um nome ao botão." };
@@ -235,6 +250,9 @@ export async function reorderBioLinks(
   }
   if (!(await assertOwnsPage(workspace.id, pageId))) {
     return { ok: false, error: "Página não encontrada." };
+  }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED };
   }
   const db = getDb();
   await db.transaction(async (tx) => {

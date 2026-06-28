@@ -210,6 +210,24 @@ async function loadGatedLink(
 	}
 	const link = parsed.data;
 
+	// Workspace billing gate (§billing). A lapsed workspace's links go dark: no
+	// redirect, no click. The flag is written only while billing is locked, so
+	// the common path is an absent key (one cheap KV read) — live by default.
+	const wsGate = (await c.env.LINKS_KV.get(
+		`ws:${link.workspaceId}`,
+		"json",
+	)) as { live?: boolean } | null;
+	if (wsGate && wsGate.live === false) {
+		return {
+			error: errorPage(
+				"Link indisponível",
+				"Este link está temporariamente fora do ar. Tente novamente mais tarde.",
+				404,
+				"notfound",
+			),
+		};
+	}
+
 	if (!link.active) {
 		return {
 			error: errorPage(

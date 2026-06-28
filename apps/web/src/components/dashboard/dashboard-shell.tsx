@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { Wordmark } from "@/components/wordmark";
 import { cn } from "@/lib/cn";
+import { LockedBanner } from "./locked-banner";
 import { PastDueBanner } from "./past-due-banner";
 import { NavLinks, SupportLink, WorkspaceFooter } from "./sidebar";
 import { TopBar } from "./topbar";
@@ -18,6 +19,7 @@ export function DashboardShell({
   isAdmin,
   trialDaysLeft,
   pastDueDaysLeft,
+  locked,
   children,
 }: {
   user: { name: string; email: string };
@@ -29,6 +31,8 @@ export function DashboardShell({
   trialDaysLeft?: number | null;
   /** Days left in the past-due tolerance window, or null when not past due. */
   pastDueDaysLeft?: number | null;
+  /** Billing lapsed: dashboard is read-only and links are dark until reactivated. */
+  locked?: boolean;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -80,6 +84,7 @@ export function DashboardShell({
           onMenu={() => setOpen(true)}
           menuId={drawerId}
         />
+        {locked && <LockedBanner />}
         {trialDaysLeft != null && <TrialBanner daysLeft={trialDaysLeft} />}
         {pastDueDaysLeft != null && (
           <PastDueBanner daysLeft={pastDueDaysLeft} />

@@ -15,6 +15,7 @@ import {
   sendCardChargeFailedEmail,
   sendPaymentOverdueEmail,
 } from "@/lib/email";
+import { lockWorkspaceLinks, unlockWorkspaceLinks } from "@/lib/kv";
 import {
   mapBillingMethod,
   sendReceiptEmailOnce,
@@ -262,6 +263,9 @@ export async function POST(request: Request) {
           .where(eq(workspaces.id, sub.workspaceId));
       }
 
+      // Billing is healthy: bring the workspace's links back online.
+      await unlockWorkspaceLinks(sub.workspaceId);
+
       // A converting trial is exempt from the retention purge: stamp the
       // redemption so the maintenance job leaves its data alone.
       await db
@@ -323,6 +327,8 @@ export async function POST(request: Request) {
         .update(workspaces)
         .set({ planKey: "free" })
         .where(eq(workspaces.id, sub.workspaceId));
+      // Money returned/clawed back: take the workspace's links offline at once.
+      await lockWorkspaceLinks(sub.workspaceId);
     } else if (
       event === "SUBSCRIPTION_DELETED" ||
       event === "SUBSCRIPTION_INACTIVATED"
@@ -340,11 +346,12 @@ export async function POST(request: Request) {
           .update(subscriptions)
           .set({ status: "canceled", canceledAt: new Date() })
           .where(eq(subscriptions.id, sub.id));
-        // Drop the workspace back to the free plan.
+        // Drop the workspace back to the free plan and take its links offline.
         await db
           .update(workspaces)
           .set({ planKey: "free" })
           .where(eq(workspaces.id, sub.workspaceId));
+        await lockWorkspaceLinks(sub.workspaceId);
       }
     }
   }

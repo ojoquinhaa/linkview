@@ -23,6 +23,7 @@ import { revalidatePath } from "next/cache";
 import { removeLinkFromKv, syncLinkToKv } from "@/lib/kv";
 import { hashPassword } from "@/lib/password";
 import { logAudit } from "./audit";
+import { LOCKED_WRITE_MESSAGE, workspaceCanWrite } from "./billing/guard";
 import { getSystemDomain } from "./domain";
 import { requireSession } from "./session";
 import { getActiveWorkspace } from "./workspace";
@@ -177,6 +178,9 @@ export async function createLinkAction(
   if (!workspace) return { ok: false, error: "Nenhum workspace ativo." };
   if (!can(workspace.role, "link.create")) {
     return { ok: false, error: "Sem permissão para criar links." };
+  }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
   }
 
   const plan = getPlan((workspace.planKey as PlanKey) ?? "free");
@@ -336,6 +340,9 @@ export async function updateLinkAction(
   if (!can(workspace.role, "link.edit")) {
     return { ok: false, error: "Sem permissão para editar links." };
   }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
+  }
 
   const db = getDb();
   const existing = await loadOwnedLink(id, workspace.id);
@@ -442,6 +449,9 @@ export async function toggleLinkAction(
   if (!can(workspace.role, "link.edit")) {
     return { ok: false, error: "Sem permissão para editar links." };
   }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
+  }
 
   const db = getDb();
   const existing = await loadOwnedLink(id, workspace.id);
@@ -545,6 +555,9 @@ export async function updateLinkSecurityAction(
   if (!workspace) return { ok: false, error: "Nenhum workspace ativo." };
   if (!can(workspace.role, "link.edit")) {
     return { ok: false, error: "Sem permissão para editar links." };
+  }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
   }
 
   const plan = getPlan((workspace.planKey as PlanKey) ?? "free");
@@ -665,6 +678,9 @@ export async function resetLinkClicksAction(
   if (!workspace) return { ok: false, error: "Nenhum workspace ativo." };
   if (!can(workspace.role, "link.edit")) {
     return { ok: false, error: "Sem permissão para editar links." };
+  }
+  if (!(await workspaceCanWrite(workspace.id))) {
+    return { ok: false, error: LOCKED_WRITE_MESSAGE };
   }
 
   const db = getDb();

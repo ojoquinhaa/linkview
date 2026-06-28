@@ -11,13 +11,12 @@ import {
   getOpenInvoiceUrl,
   getWorkspaceSubscription,
   reconcilePendingSubscription,
+  resolveSubscriptionAccess,
 } from "@/server/billing/subscription";
 import { getTrialEligibility } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
 import { TrialCta } from "./trial-cta";
-
-const ACTIVE = new Set(["active", "trialing"]);
 
 const PRO_PERKS = [
   "Até 500 links rastreáveis",
@@ -44,7 +43,14 @@ export default async function AssinarPage() {
       console.error("billing.reconcile_failed", err);
     }
   }
-  if (sub && ACTIVE.has(sub.status)) redirect("/dashboard/links");
+  // Anyone with live access belongs in the dashboard, not on the plans page —
+  // including a still-paid user whose latest charge is merely `pending` (a
+  // mid-upgrade re-checkout). Only lapsed/never-paid workspaces stay here.
+  const access = resolveSubscriptionAccess(sub);
+  if (access === "full") redirect("/dashboard/links");
+  // A workspace that paid before but lapsed reaches the dashboard read-only, so
+  // /assinar must offer a way back instead of stranding it here on the plans.
+  const canReturnToDashboard = access === "locked";
   // A pending charge must NOT bounce back to the confirmation screen: that, plus
   // the dashboard's paid-gate, funnels the user into an inescapable loop. Show
   // the plans instead, with a banner to finish or restart the open payment.
@@ -122,7 +128,20 @@ export default async function AssinarPage() {
           <ProCard pricing={pricing} secondaryCta={trial.eligible} />
         </div>
 
-        <p className="mt-8 text-center text-[0.85rem] text-muted">
+        {canReturnToDashboard && (
+          <Link
+            href="/dashboard/links"
+            className="mt-8 inline-flex items-center gap-1.5 text-[0.88rem] font-medium text-accent hover:underline"
+          >
+            ← Voltar ao painel
+          </Link>
+        )}
+
+        <p
+          className={`text-center text-[0.85rem] text-muted ${
+            canReturnToDashboard ? "mt-3" : "mt-8"
+          }`}
+        >
           Entrou com {session.user.email}.{" "}
           <Link
             href="/login"

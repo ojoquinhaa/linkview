@@ -2,15 +2,15 @@ import { PAST_DUE_GRACE_DAYS } from "@linkview/shared";
 import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { isPlatformAdmin } from "@/server/admin/guard";
-import { getWorkspaceSubscription } from "@/server/billing/subscription";
+import {
+  getWorkspaceSubscription,
+  resolveSubscriptionAccess,
+} from "@/server/billing/subscription";
 import { getTrialStatus } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-// No free tier at launch: the dashboard requires a paid, active subscription.
-const ACTIVE_SUBSCRIPTION = new Set(["active", "trialing"]);
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Grátis",
@@ -40,18 +40,22 @@ export default async function DashboardLayout({
   // Platform admins bypass the paid-subscription gate so they can audit the
   // product without holding a plan of their own.
   let pastDueDaysLeft: number | null = null;
+  let locked = false;
   if (!admin) {
     const sub = await getWorkspaceSubscription(workspace.id);
-    if (!sub) redirect("/assinar");
-    if (!ACTIVE_SUBSCRIPTION.has(sub.status)) {
-      // `past_due` keeps access for a bounded tolerance window measured from the
-      // last paid period end; past it (or for any other inactive status) the
-      // dashboard is hard-blocked.
+    const access = resolveSubscriptionAccess(sub);
+    // Only a workspace that has *never* paid is sent to onboarding. A workspace
+    // that paid before but lapsed stays reachable in a read-only "locked" state
+    // — it can browse and pay, but cannot write and its links are dark — until
+    // the retention job purges it. This is what keeps the user from being
+    // trapped on /assinar with a paid (or recently-paid) plan.
+    if (access === "none") redirect("/assinar");
+    locked = access === "locked";
+    if (!locked && sub?.status === "past_due" && sub.currentPeriodEnd) {
+      // Inside the past-due tolerance window: full access, but warn how long is
+      // left so the user pays before the lapse to `locked`.
       const graceEnd =
-        sub.status === "past_due" && sub.currentPeriodEnd
-          ? sub.currentPeriodEnd.getTime() + PAST_DUE_GRACE_DAYS * DAY_MS
-          : null;
-      if (!graceEnd || graceEnd <= Date.now()) redirect("/assinar");
+        sub.currentPeriodEnd.getTime() + PAST_DUE_GRACE_DAYS * DAY_MS;
       pastDueDaysLeft = Math.max(
         0,
         Math.ceil((graceEnd - Date.now()) / DAY_MS),
@@ -70,6 +74,7 @@ export default async function DashboardLayout({
       isAdmin={admin}
       trialDaysLeft={trial?.daysLeft ?? null}
       pastDueDaysLeft={pastDueDaysLeft}
+      locked={locked}
     >
       {children}
     </DashboardShell>
