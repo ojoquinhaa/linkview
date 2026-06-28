@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/kv-resync",
-      "schedule": "*/15 * * * *"
+      "schedule": "30 3 * * *"
     }
   ]
 }
