@@ -12,7 +12,17 @@
     "CLOUDFLARE_KV_NAMESPACE_ID",
     "CLOUDFLARE_API_TOKEN",
     "SENTRY_DSN",
-    "IP_HASH_SALT"
+    "IP_HASH_SALT",
+    "ASAAS_API_URL",
+    "UNLOCK_SECRET",
+    "REDIS_URL",
+    "R2_ACCOUNT_ID",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "R2_BUCKET",
+    "R2_PUBLIC_URL",
+    "CLICK_INGEST_TOKEN",
+    "CRON_SECRET"
   ],
   "tasks": {
     "build": {

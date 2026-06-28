@@ -81,4 +81,11 @@ export const auth: Auth = new Proxy({} as Auth, {
     const value = Reflect.get(instance, prop, receiver);
     return typeof value === "function" ? value.bind(instance) : value;
   },
+  // `toNextJsHandler` does `"handler" in auth` to pick its dispatch path; the
+  // `in` operator hits the `has` trap, not `get`. Without this it tests the
+  // empty target (always false), so it calls `auth(request)` — the proxy isn't
+  // callable → every /api/auth/* request 500s. Delegate `has` to the instance.
+  has(_target, prop) {
+    return prop in getAuth();
+  },
 });
