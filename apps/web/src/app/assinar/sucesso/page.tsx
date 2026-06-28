@@ -1,6 +1,6 @@
 import { getAnnualSavings, getPlan } from "@linkview/shared";
 import { redirect } from "next/navigation";
-import { Wordmark } from "@/components/wordmark";
+import { PublicHeader } from "@/components/public-header";
 import { getWorkspaceSubscription } from "@/server/billing/subscription";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
@@ -48,9 +48,10 @@ export default async function SucessoPage() {
         aria-hidden
         className="pointer-events-none absolute inset-0 [background:radial-gradient(120%_70%_at_50%_-10%,var(--accent-weak),transparent_55%)] opacity-70"
       />
-      <header className="relative z-10 px-6 py-6 sm:px-10">
-        <Wordmark size="md" />
-      </header>
+      <PublicHeader
+        user={{ name: session.user.name ?? "", email: session.user.email }}
+        canAccessDashboard
+      />
 
       <main className="relative z-10 grid flex-1 place-items-center px-6 pb-16">
         <div className="w-full max-w-[28rem] text-center">

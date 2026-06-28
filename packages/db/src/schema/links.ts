@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -76,6 +77,12 @@ export const links = pgTable(
       .notNull()
       .default(0),
     lastClickedAt: timestamp("last_clicked_at", { withTimezone: true }),
+    // Cloudflare KV mirror status (§11.6). Postgres is the source of truth; KV
+    // holds the operational record the redirect Worker reads. When a KV write
+    // fails we keep the link live in Postgres and flag it for resync instead of
+    // failing the user's mutation — a scheduled job re-pushes flagged rows.
+    kvSyncedAt: timestamp("kv_synced_at", { withTimezone: true }),
+    kvSyncPending: boolean("kv_sync_pending").notNull().default(false),
     ...timestamps,
     ...softDelete,
   },
@@ -88,6 +95,11 @@ export const links = pgTable(
     index("links_created_at_idx").on(t.createdAt),
     index("links_is_active_idx").on(t.isActive),
     index("links_expires_at_idx").on(t.expiresAt),
+    // Tiny partial index: the resync job scans only the (usually empty) set of
+    // links awaiting a KV retry.
+    index("links_kv_sync_pending_idx")
+      .on(t.id)
+      .where(sql`${t.kvSyncPending} = true`),
   ],
 );
 

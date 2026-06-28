@@ -6,9 +6,8 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BillingCycleChoice } from "@/components/billing/billing-cycle-choice";
-import { Wordmark } from "@/components/wordmark";
+import { PublicHeader } from "@/components/public-header";
 import {
-  getOpenInvoiceUrl,
   getWorkspaceSubscription,
   reconcilePendingSubscription,
   resolveSubscriptionAccess,
@@ -53,10 +52,11 @@ export default async function AssinarPage() {
   const canReturnToDashboard = access === "locked";
   // A pending charge must NOT bounce back to the confirmation screen: that, plus
   // the dashboard's paid-gate, funnels the user into an inescapable loop. Show
-  // the plans instead, with a banner to finish or restart the open payment.
-  const pendingInvoiceUrl =
+  // the plans instead, with a banner that re-opens the in-app Pix checkout so the
+  // user can finish paying — no hosted page.
+  const resumePixHref =
     sub?.status === "pending"
-      ? await getOpenInvoiceUrl(workspace.id).catch(() => null)
+      ? `/assinar/pagamento?method=pix&cycle=${sub.billingCycle}`
       : null;
 
   const plan = getPlan("pro");
@@ -80,9 +80,10 @@ export default async function AssinarPage() {
         aria-hidden
         className="pointer-events-none absolute inset-0 [background:radial-gradient(120%_70%_at_50%_-10%,var(--accent-weak),transparent_55%)] opacity-70"
       />
-      <header className="relative z-10 px-6 py-6 sm:px-10">
-        <Wordmark size="md" />
-      </header>
+      <PublicHeader
+        user={{ name: session.user.name ?? "", email: session.user.email }}
+        canAccessDashboard={canReturnToDashboard}
+      />
 
       <main className="relative z-10 flex flex-1 flex-col items-center px-6 pb-16">
         <div className="mx-auto max-w-2xl pt-4 text-center sm:pt-8">
@@ -108,13 +109,13 @@ export default async function AssinarPage() {
               Conclua o pagamento para liberar o acesso, ou escolha outro plano
               abaixo.
             </p>
-            {pendingInvoiceUrl && (
-              <a
-                href={pendingInvoiceUrl}
+            {resumePixHref && (
+              <Link
+                href={resumePixHref}
                 className="mt-3 inline-flex h-10 items-center justify-center rounded-[var(--radius-input)] bg-accent px-4 text-[0.85rem] font-medium text-accent-ink transition-colors duration-150 ease-[var(--ease-out-quint)] hover:bg-accent-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
               >
                 Continuar pagamento
-              </a>
+              </Link>
             )}
           </div>
         )}
@@ -136,20 +137,6 @@ export default async function AssinarPage() {
             ← Voltar ao painel
           </Link>
         )}
-
-        <p
-          className={`text-center text-[0.85rem] text-muted ${
-            canReturnToDashboard ? "mt-3" : "mt-8"
-          }`}
-        >
-          Entrou com {session.user.email}.{" "}
-          <Link
-            href="/login"
-            className="font-medium text-accent hover:underline"
-          >
-            Trocar conta
-          </Link>
-        </p>
       </main>
     </div>
   );

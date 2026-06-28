@@ -319,9 +319,16 @@ export async function POST(request: Request) {
     ) {
       // Money was returned (refund) or is being clawed back (chargeback): revoke
       // access immediately — no grace, the period was effectively not paid for.
+      // Collapse `currentPeriodEnd` to now so `resolveSubscriptionAccess` sees a
+      // lapsed period and returns "locked" rather than treating this like a
+      // graceful cancel-at-period-end (which still has paid time left → "full").
       await db
         .update(subscriptions)
-        .set({ status: "canceled", canceledAt: new Date() })
+        .set({
+          status: "canceled",
+          canceledAt: new Date(),
+          currentPeriodEnd: new Date(),
+        })
         .where(eq(subscriptions.id, sub.id));
       await db
         .update(workspaces)

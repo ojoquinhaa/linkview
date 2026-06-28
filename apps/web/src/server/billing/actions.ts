@@ -1,40 +1,93 @@
 "use server";
+import { can } from "@linkview/auth/permissions";
 import { getDb, userProfiles } from "@linkview/db";
 import type { BillingCycle } from "@linkview/shared";
 import { eq } from "drizzle-orm";
+import { headers } from "next/headers";
+import { type RawCard, validateCard } from "@/lib/card";
+import { rateLimit } from "@/lib/rate-limit";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
 import {
   cancelWorkspaceSubscription,
+  changeCard,
   changeSubscriptionCycle,
-  getOpenInvoiceUrl,
   getWorkspaceSubscription,
+  type PixCheckoutResult,
   reconcilePendingSubscription,
   resumeSubscription,
-  startSubscription,
+  startCardSubscription,
+  startPixSubscription,
 } from "./subscription";
 import { type StartTrialResult, startTrial } from "./trial";
 
-export interface CheckoutActionResult {
-  url?: string;
+/** Only `owner` holds `billing.manage`; shown when a lower role tries to act. */
+const NO_BILLING_PERMISSION =
+  "Você não tem permissão para gerenciar a assinatura deste workspace.";
+
+/** Buyer IP for Asaas anti-fraud — the client's, never the server's. Reads the
+ * proxy headers Vercel/Cloudflare set; falls back to a sentinel that Asaas
+ * tolerates so a missing header never blocks a legitimate purchase. */
+async function clientIp(): Promise<string> {
+  const h = await headers();
+  const fwd = h.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0]?.trim() || "0.0.0.0";
+  return h.get("x-real-ip")?.trim() || "0.0.0.0";
+}
+
+/** Fetch the fiscal + address fields Asaas needs for card anti-fraud. */
+async function billingProfile(userId: string) {
+  const db = getDb();
+  const [profile] = await db
+    .select({
+      document: userProfiles.document,
+      phone: userProfiles.phone,
+      zip: userProfiles.zip,
+      number: userProfiles.number,
+    })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId))
+    .limit(1);
+  return profile ?? null;
+}
+
+export interface PixCheckoutActionResult {
+  ok: boolean;
+  /** Pix QR + copy-paste code to render in-app (no hosted page). */
+  pix?: PixCheckoutResult;
   error?: string;
 }
 
 /**
- * Start the Pro subscription for the signed-in user's workspace on the chosen
- * billing cycle and hand back the Asaas hosted-checkout URL. The client
- * redirects the browser to it. The fiscal document and phone come from the
- * profile captured at sign-up — we never ask for them again here.
+ * Start (or refresh) a Pix Pro subscription for the signed-in user's workspace
+ * and return the Pix QR + copy-paste code, rendered by our own checkout — no
+ * Asaas hosted page. The fiscal document comes from the profile captured at
+ * sign-up. The client shows the QR and polls {@link checkActivationAction} until
+ * the payment clears.
  */
-export async function createCheckout(
+export async function createPixCheckoutAction(
   cycle: BillingCycle = "monthly",
-  /** True = recurring credit-card auto-charge; false = manual Pix/boleto/card. */
-  autopay = false,
-): Promise<CheckoutActionResult> {
+): Promise<PixCheckoutActionResult> {
   try {
     const session = await requireSession();
     const workspace = await getActiveWorkspace(session.user.id);
-    if (!workspace) return { error: "Sessão expirada. Entre novamente." };
+    if (!workspace)
+      return { ok: false, error: "Sessão expirada. Entre novamente." };
+    if (!can(workspace.role, "billing.manage")) {
+      return { ok: false, error: NO_BILLING_PERMISSION };
+    }
+
+    // Blunt abuse: cap how often a workspace/IP can spin up new Pix charges.
+    const ip = await clientIp();
+    const allowed =
+      (await rateLimit(`pix:ws:${workspace.id}`, 10, 600)) &&
+      (await rateLimit(`pix:ip:${ip}`, 16, 600));
+    if (!allowed) {
+      return {
+        ok: false,
+        error: "Muitas tentativas. Aguarde alguns minutos.",
+      };
+    }
 
     const db = getDb();
     const [profile] = await db
@@ -43,10 +96,10 @@ export async function createCheckout(
       .where(eq(userProfiles.userId, session.user.id))
       .limit(1);
     if (!profile?.document) {
-      return { error: "Complete seu cadastro antes de assinar." };
+      return { ok: false, error: "Complete seu cadastro antes de assinar." };
     }
 
-    const { invoiceUrl } = await startSubscription(
+    const pix = await startPixSubscription(
       workspace.id,
       "pro",
       {
@@ -56,46 +109,178 @@ export async function createCheckout(
         phone: profile.phone || undefined,
       },
       cycle,
-      autopay,
     );
-    return { url: invoiceUrl };
+    return { ok: true, pix };
   } catch (err) {
     // Never reject — a thrown read would leave the checkout button spinning.
-    console.error("billing.checkout_failed", err);
+    console.error("billing.pix_checkout_failed", err);
     return {
-      error: "Não foi possível iniciar o pagamento. Tente novamente.",
+      ok: false,
+      error: "Não foi possível gerar o Pix. Tente novamente.",
     };
+  }
+}
+
+export interface CardCheckoutActionResult {
+  ok: boolean;
+  /** `active` when the first charge cleared (the common case); `pending` if the
+   * card was accepted but hasn't settled yet. */
+  status?: "active" | "pending";
+  error?: string;
+}
+
+/** A declined/blocked card surfaces a clean, user-actionable message — never the
+ * raw gateway error. Asaas wraps the reason as "Asaas <code>: <description>". */
+function cardErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : "";
+  const match = raw.match(/^Asaas \d+:\s*(.+)$/);
+  if (match?.[1]) return match[1];
+  return "Não foi possível aprovar o cartão. Confira os dados ou tente outro cartão.";
+}
+
+/**
+ * Subscribe with a credit card captured by our own checkout (no Asaas hosted
+ * page). The card is validated, rate-limited (anti card-testing), tokenized, and
+ * charged synchronously. Card data lives only for this request and is never
+ * logged. Returns `active` once the charge clears.
+ */
+export async function createCardCheckoutAction(
+  cycle: BillingCycle,
+  card: RawCard,
+): Promise<CardCheckoutActionResult> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace)
+    return { ok: false, error: "Sessão expirada. Entre novamente." };
+  if (!can(workspace.role, "billing.manage")) {
+    return { ok: false, error: NO_BILLING_PERMISSION };
+  }
+
+  // Revalidate server-side: never trust the client's checks.
+  const invalid = validateCard(card);
+  if (invalid) return { ok: false, error: invalid };
+
+  const ip = await clientIp();
+  // Blunt card-testing: cap attempts per workspace and per source IP.
+  const allowed =
+    (await rateLimit(`card:ws:${workspace.id}`, 8, 600)) &&
+    (await rateLimit(`card:ip:${ip}`, 12, 600));
+  if (!allowed) {
+    return {
+      ok: false,
+      error: "Muitas tentativas de pagamento. Aguarde alguns minutos.",
+    };
+  }
+
+  const profile = await billingProfile(session.user.id);
+  if (!profile?.document || !profile.zip || !profile.number) {
+    return { ok: false, error: "Complete seu cadastro antes de assinar." };
+  }
+
+  try {
+    const result = await startCardSubscription(
+      workspace.id,
+      "pro",
+      {
+        name: session.user.name ?? session.user.email,
+        email: session.user.email,
+        cpfCnpj: profile.document,
+        phone: profile.phone || undefined,
+        postalCode: profile.zip,
+        addressNumber: profile.number,
+      },
+      {
+        holderName: card.holderName.trim(),
+        number: card.number.replace(/\D/g, ""),
+        expiryMonth: card.expiryMonth.trim(),
+        expiryYear: card.expiryYear.trim(),
+        ccv: card.ccv.trim(),
+      },
+      ip,
+      cycle,
+    );
+    return { ok: true, status: result.status };
+  } catch (err) {
+    // Log without any card data — only the gateway's reason string.
+    console.error("billing.card_checkout_failed", {
+      workspaceId: workspace.id,
+      reason: err instanceof Error ? err.message : "unknown",
+    });
+    return { ok: false, error: cardErrorMessage(err) };
+  }
+}
+
+export interface UpdateCardActionResult {
+  ok: boolean;
+  card?: { last4: string; brand: string };
+  error?: string;
+}
+
+/**
+ * Replace the card on file via our own form. Tokenizes the new card and points
+ * the Asaas subscription at it without charging now. Validated, rate-limited,
+ * never logs card data.
+ */
+export async function updateCardAction(
+  card: RawCard,
+): Promise<UpdateCardActionResult> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace)
+    return { ok: false, error: "Sessão expirada. Entre novamente." };
+  if (!can(workspace.role, "billing.manage")) {
+    return { ok: false, error: NO_BILLING_PERMISSION };
+  }
+
+  const invalid = validateCard(card);
+  if (invalid) return { ok: false, error: invalid };
+
+  const ip = await clientIp();
+  const allowed =
+    (await rateLimit(`card:ws:${workspace.id}`, 8, 600)) &&
+    (await rateLimit(`card:ip:${ip}`, 12, 600));
+  if (!allowed) {
+    return { ok: false, error: "Muitas tentativas. Aguarde alguns minutos." };
+  }
+
+  const profile = await billingProfile(session.user.id);
+  if (!profile?.document || !profile.zip || !profile.number) {
+    return { ok: false, error: "Complete seu cadastro para trocar o cartão." };
+  }
+
+  try {
+    const result = await changeCard(
+      workspace.id,
+      {
+        name: session.user.name ?? session.user.email,
+        email: session.user.email,
+        cpfCnpj: profile.document,
+        phone: profile.phone || undefined,
+        postalCode: profile.zip,
+        addressNumber: profile.number,
+      },
+      {
+        holderName: card.holderName.trim(),
+        number: card.number.replace(/\D/g, ""),
+        expiryMonth: card.expiryMonth.trim(),
+        expiryYear: card.expiryYear.trim(),
+        ccv: card.ccv.trim(),
+      },
+      ip,
+    );
+    return { ok: true, card: result };
+  } catch (err) {
+    console.error("billing.card_update_failed", {
+      workspaceId: workspace.id,
+      reason: err instanceof Error ? err.message : "unknown",
+    });
+    return { ok: false, error: cardErrorMessage(err) };
   }
 }
 
 /** Start the 7-day Pro trial for the signed-in user's workspace. */
 export async function startTrialAction(): Promise<StartTrialResult> {
   return startTrial();
-}
-
-export interface CardUpdateResult {
-  /** Hosted invoice URL to pay with a new card, or null when nothing is open. */
-  url: string | null;
-  error?: string;
-}
-
-/**
- * Hosted URL the customer opens to pay an open charge with a new card — Asaas
- * then reuses that card for future auto-renewals. Returns `url: null` when there
- * is no open charge (nothing to pay right now), so the UI can explain that.
- */
-export async function cardUpdateUrlAction(): Promise<CardUpdateResult> {
-  const session = await requireSession();
-  const workspace = await getActiveWorkspace(session.user.id);
-  if (!workspace)
-    return { url: null, error: "Sessão expirada. Entre novamente." };
-
-  try {
-    return { url: await getOpenInvoiceUrl(workspace.id) };
-  } catch (err) {
-    console.error("billing.card_update_url_failed", err);
-    return { url: null, error: "Não foi possível abrir agora. Tente de novo." };
-  }
 }
 
 export interface ActivationResult {
@@ -148,6 +333,9 @@ export async function switchBillingCycleAction(
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace)
     return { ok: false, error: "Sessão expirada. Entre novamente." };
+  if (!can(workspace.role, "billing.manage")) {
+    return { ok: false, error: NO_BILLING_PERMISSION };
+  }
 
   try {
     await changeSubscriptionCycle(workspace.id, cycle);
@@ -175,6 +363,9 @@ export async function cancelSubscriptionAction(): Promise<CancelActionResult> {
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace)
     return { ok: false, error: "Sessão expirada. Entre novamente." };
+  if (!can(workspace.role, "billing.manage")) {
+    return { ok: false, error: NO_BILLING_PERMISSION };
+  }
 
   try {
     await cancelWorkspaceSubscription(workspace.id);
@@ -205,6 +396,9 @@ export async function resumeSubscriptionAction(): Promise<ResumeActionResult> {
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace)
     return { ok: false, error: "Sessão expirada. Entre novamente." };
+  if (!can(workspace.role, "billing.manage")) {
+    return { ok: false, error: NO_BILLING_PERMISSION };
+  }
 
   try {
     await resumeSubscription(workspace.id);

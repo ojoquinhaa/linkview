@@ -20,7 +20,8 @@ import {
 } from "@linkview/shared";
 import { and, count, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { removeLinkFromKv, syncLinkToKv } from "@/lib/kv";
+import { removeLinkFromKv } from "@/lib/kv";
+import { syncLinkTracked } from "@/lib/link-sync";
 import { hashPassword } from "@/lib/password";
 import { logAudit } from "./audit";
 import { LOCKED_WRITE_MESSAGE, workspaceCanWrite } from "./billing/guard";
@@ -257,12 +258,7 @@ export async function createLinkAction(
     // New links have no layout yet; free plans still get the branded splash.
     splash: resolveSplash(plan.key, null),
   });
-  try {
-    await syncLinkToKv(domain.hostname, created.slug, record);
-  } catch (err) {
-    console.error("link.kv_sync_failed", err);
-    // TODO: enqueue resync; do not fail the creation.
-  }
+  await syncLinkTracked(created.id, domain.hostname, created.slug, record);
 
   await logAudit({
     workspaceId: workspace.id,
@@ -413,14 +409,15 @@ export async function updateLinkAction(
       existing.pageLayoutId,
     ),
   });
-  try {
-    if (nextSlug !== existing.slug) {
-      await removeLinkFromKv(domain.hostname, existing.slug);
-    }
-    await syncLinkToKv(domain.hostname, nextSlug, record);
-  } catch (err) {
-    console.error("link.kv_sync_failed", err);
+  if (nextSlug !== existing.slug) {
+    // Drop the stale key first; a failure here only orphans the old slug (it
+    // can't serve, since the unique slug now points at this record), so it must
+    // not block the new record's write.
+    await removeLinkFromKv(domain.hostname, existing.slug).catch((err) =>
+      console.error("link.kv_remove_failed", existing.slug, err),
+    );
   }
+  await syncLinkTracked(id, domain.hostname, nextSlug, record);
 
   await logAudit({
     workspaceId: workspace.id,
@@ -481,11 +478,7 @@ export async function toggleLinkAction(
       existing.pageLayoutId,
     ),
   });
-  try {
-    await syncLinkToKv(domain.hostname, existing.slug, record);
-  } catch (err) {
-    console.error("link.kv_sync_failed", err);
-  }
+  await syncLinkTracked(id, domain.hostname, existing.slug, record);
 
   await logAudit({
     workspaceId: workspace.id,
@@ -645,11 +638,7 @@ export async function updateLinkSecurityAction(
       existing.pageLayoutId,
     ),
   });
-  try {
-    await syncLinkToKv(domain.hostname, existing.slug, record);
-  } catch (err) {
-    console.error("link.kv_sync_failed", err);
-  }
+  await syncLinkTracked(id, domain.hostname, existing.slug, record);
 
   await logAudit({
     workspaceId: workspace.id,
@@ -717,11 +706,7 @@ export async function resetLinkClicksAction(
       existing.pageLayoutId,
     ),
   });
-  try {
-    await syncLinkToKv(domain.hostname, existing.slug, record);
-  } catch (err) {
-    console.error("link.kv_sync_failed", err);
-  }
+  await syncLinkTracked(id, domain.hostname, existing.slug, record);
 
   await logAudit({
     workspaceId: workspace.id,

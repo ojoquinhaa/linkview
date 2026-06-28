@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
+import { PublicHeader } from "@/components/public-header";
 import { SupportFab } from "@/components/support-fab";
-import { Wordmark } from "@/components/wordmark";
 import {
-  getOpenInvoiceUrl,
   getWorkspaceSubscription,
   reconcilePendingSubscription,
 } from "@/server/billing/subscription";
@@ -39,14 +38,10 @@ export default async function ConfirmandoPage() {
   }
   if (active) redirect("/assinar/sucesso");
 
-  // The hosted invoice for the still-open charge, so the user can pay (or finish
-  // paying) right from this screen instead of being stranded waiting.
-  let invoiceUrl: string | null = null;
-  try {
-    invoiceUrl = await getOpenInvoiceUrl(workspace.id);
-  } catch (err) {
-    console.error("billing.confirm_invoice_failed", err);
-  }
+  // Our own in-app Pix checkout for the still-open charge, so the user can finish
+  // paying right from this screen instead of being stranded waiting — no hosted
+  // page.
+  const payUrl = `/assinar/pagamento?method=pix&cycle=${sub.billingCycle}`;
 
   return (
     <div className="relative flex min-h-screen flex-col bg-paper">
@@ -54,12 +49,12 @@ export default async function ConfirmandoPage() {
         aria-hidden
         className="pointer-events-none absolute inset-0 [background:radial-gradient(120%_70%_at_50%_-10%,var(--accent-weak),transparent_55%)] opacity-70"
       />
-      <header className="relative z-10 px-6 py-6 sm:px-10">
-        <Wordmark size="md" />
-      </header>
+      <PublicHeader
+        user={{ name: session.user.name ?? "", email: session.user.email }}
+      />
 
       <main className="relative z-10 grid flex-1 place-items-center px-6 pb-16">
-        <Confirming invoiceUrl={invoiceUrl} />
+        <Confirming payUrl={payUrl} />
       </main>
 
       <SupportFab />

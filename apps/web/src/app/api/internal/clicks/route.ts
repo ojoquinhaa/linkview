@@ -3,7 +3,7 @@ import { clickIngestSchema, type KvLinkRecord } from "@linkview/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { channelLabel } from "@/lib/channel-labels";
 import { clickIngestToken } from "@/lib/env";
-import { syncLinkToKv } from "@/lib/kv";
+import { syncLinkTracked } from "@/lib/link-sync";
 import { publishClick } from "@/lib/realtime";
 import { getSystemDomain } from "@/server/domain";
 
@@ -69,25 +69,23 @@ async function enforceClickCap(
     .update(links)
     .set({ isActive: false, updatedAt: new Date() })
     .where(eq(links.id, row.id));
-  try {
-    const domain = await getSystemDomain();
-    const record: KvLinkRecord = {
-      linkId: row.id,
-      workspaceId,
-      destinationUrl: row.destinationUrl,
-      active: false,
-      expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
-      passwordProtected: Boolean(row.passwordHash),
-      blockBots: row.blockBots,
-      allowedCountries: row.allowedCountries ?? [],
-      blockedCountries: row.blockedCountries ?? [],
-      rateLimitPerMinute: row.rateLimitPerMinute,
-      updatedAt: new Date().toISOString(),
-    };
-    await syncLinkToKv(domain.hostname, row.slug, record);
-  } catch (err) {
-    console.error("link.kv_sync_failed", err);
-  }
+  const domain = await getSystemDomain();
+  const record: KvLinkRecord = {
+    linkId: row.id,
+    workspaceId,
+    destinationUrl: row.destinationUrl,
+    active: false,
+    expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+    passwordProtected: Boolean(row.passwordHash),
+    blockBots: row.blockBots,
+    allowedCountries: row.allowedCountries ?? [],
+    blockedCountries: row.blockedCountries ?? [],
+    rateLimitPerMinute: row.rateLimitPerMinute,
+    updatedAt: new Date().toISOString(),
+  };
+  // A KV failure flags the link for resync; the click cap is already enforced
+  // in Postgres so the link is off regardless.
+  await syncLinkTracked(row.id, domain.hostname, row.slug, record);
 }
 
 /** Ingest a click from the redirect Worker (§11.5). Bearer-protected. */

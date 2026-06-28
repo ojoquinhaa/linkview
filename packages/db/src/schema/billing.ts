@@ -63,6 +63,13 @@ export const subscriptions = pgTable(
     /** True when the workspace pays by recurring credit card (Asaas auto-charges
      * each cycle). False = manual Pix/boleto/card invoice every renewal. */
     autopay: boolean("autopay").notNull().default(false),
+    /** Opaque Asaas card token, set when the workspace pays via our own card
+     * checkout. Reused to charge renewals and to swap the card. Never the PAN. */
+    cardToken: text("card_token"),
+    /** Last 4 digits of the card on file, for display ("···· 4242"). */
+    cardLast4: text("card_last4"),
+    /** Card brand label on file, e.g. "VISA" / "MASTERCARD". */
+    cardBrand: text("card_brand"),
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
     /** Stamped the first time the payment-confirmed receipt email is sent for
      * the current paid period. Dedup guard so the webhook and the "Já paguei"

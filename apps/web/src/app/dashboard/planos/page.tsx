@@ -195,6 +195,8 @@ export default async function PlanosPage() {
             pricing={pricing}
             currentCycle={annual ? "yearly" : "monthly"}
             nextChargeLabel={renewsAt ? fmtDate(renewsAt) : null}
+            cardLast4={sub.cardLast4}
+            cardBrand={sub.cardBrand}
           />
         </div>
       </div>

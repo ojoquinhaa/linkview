@@ -1,5 +1,5 @@
 import "server-only";
-import { getDb, links, pageLayouts } from "@linkview/db";
+import { getDb, links, pageLayouts, workspaces } from "@linkview/db";
 import {
   getPlan,
   type KvLinkRecord,
@@ -7,9 +7,55 @@ import {
   resolveSplash,
   type SplashConfig,
 } from "@linkview/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getSystemDomain } from "@/server/domain";
 import { syncLinkToKv } from "./kv";
+
+/** Stamp a link's KV mirror as in sync (clears any pending-resync flag). */
+async function markKvSynced(linkId: string): Promise<void> {
+  await getDb()
+    .update(links)
+    .set({ kvSyncedAt: new Date(), kvSyncPending: false })
+    .where(eq(links.id, linkId));
+}
+
+/** Flag a link for KV resync after a failed write. Best-effort: if even this
+ *  update fails the row simply stays unflagged, which the next mutation or a
+ *  full reconciliation would still catch. */
+async function markKvSyncPending(linkId: string): Promise<void> {
+  try {
+    await getDb()
+      .update(links)
+      .set({ kvSyncPending: true })
+      .where(eq(links.id, linkId));
+  } catch (err) {
+    console.error("link.kv_mark_pending_failed", linkId, err);
+  }
+}
+
+/**
+ * Push a link's operational record to KV and record the outcome in Postgres.
+ * Never throws: a KV failure flags the link for resync (the scheduled job
+ * re-pushes it) instead of failing the caller's mutation — Postgres stays the
+ * source of truth and the user's action still succeeds (§11.6). Returns whether
+ * the live KV write landed.
+ */
+export async function syncLinkTracked(
+  linkId: string,
+  hostname: string,
+  slug: string,
+  record: KvLinkRecord,
+): Promise<boolean> {
+  try {
+    await syncLinkToKv(hostname, slug, record);
+    await markKvSynced(linkId);
+    return true;
+  } catch (err) {
+    console.error("link.kv_sync_failed", slug, err);
+    await markKvSyncPending(linkId);
+    return false;
+  }
+}
 
 /** Narrow the loosely-typed layout columns to the splash union types. */
 function toSplashLayout(row: {
@@ -120,9 +166,7 @@ async function writeAll(rows: LinkRow[], splash: SplashConfig | null) {
   const domain = await getSystemDomain();
   await Promise.all(
     rows.map((row) =>
-      syncLinkToKv(domain.hostname, row.slug, recordFor(row, splash)).catch(
-        (err) => console.error("layout.resync_failed", row.slug, err),
-      ),
+      syncLinkTracked(row.id, domain.hostname, row.slug, recordFor(row, splash)),
     ),
   );
 }
@@ -152,4 +196,71 @@ export async function resyncLink(
     .where(and(eq(links.id, linkId), isNull(links.deletedAt)))
     .limit(1);
   await writeAll(rows, splash);
+}
+
+export interface ResyncResult {
+  scanned: number;
+  resynced: number;
+  failed: number;
+}
+
+/**
+ * Drain the KV resync backlog: every live link flagged `kvSyncPending` (a prior
+ * KV write failed) is rebuilt from authoritative Postgres state — including its
+ * plan-resolved splash — and re-pushed. A successful push clears the flag; a
+ * still-failing one leaves it set for the next run. Bounded by `limit` so a
+ * single invocation can't run unbounded. Driven by the kv-resync cron (§11.6).
+ */
+export async function resyncPendingLinks(limit = 200): Promise<ResyncResult> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: links.id,
+      slug: links.slug,
+      workspaceId: links.workspaceId,
+      destinationUrl: links.destinationUrl,
+      isActive: links.isActive,
+      expiresAt: links.expiresAt,
+      passwordHash: links.passwordHash,
+      blockBots: links.blockBots,
+      allowedCountries: links.allowedCountries,
+      blockedCountries: links.blockedCountries,
+      rateLimitPerMinute: links.rateLimitPerMinute,
+      pageLayoutId: links.pageLayoutId,
+      planKey: workspaces.planKey,
+    })
+    .from(links)
+    .innerJoin(workspaces, eq(links.workspaceId, workspaces.id))
+    .where(
+      and(
+        eq(links.kvSyncPending, true),
+        isNull(links.deletedAt),
+        isNull(workspaces.deletedAt),
+      ),
+    )
+    .limit(limit);
+
+  if (!rows.length) return { scanned: 0, resynced: 0, failed: 0 };
+
+  const domain = await getSystemDomain();
+  let resynced = 0;
+  for (const row of rows) {
+    const splash = await resolveSplashForLink(
+      row.planKey as PlanKey,
+      row.pageLayoutId,
+    );
+    const ok = await syncLinkTracked(
+      row.id,
+      domain.hostname,
+      row.slug,
+      recordFor(row, splash),
+    );
+    if (ok) resynced += 1;
+  }
+
+  return {
+    scanned: rows.length,
+    resynced,
+    failed: rows.length - resynced,
+  };
 }

@@ -6,12 +6,15 @@ import {
   BillingCycleChoice,
   type BillingCyclePricing,
 } from "@/components/billing/billing-cycle-choice";
+import { CardForm } from "@/components/billing/card-form";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
+import type { RawCard } from "@/lib/card";
 import {
   cancelSubscriptionAction,
-  cardUpdateUrlAction,
   resumeSubscriptionAction,
   switchBillingCycleAction,
+  updateCardAction,
 } from "@/server/billing/actions";
 
 type Mode = "trial" | "active";
@@ -35,6 +38,8 @@ export function PlanActions({
   pricing,
   currentCycle,
   nextChargeLabel,
+  cardLast4,
+  cardBrand,
 }: {
   mode: Mode;
   canceling: boolean;
@@ -43,6 +48,8 @@ export function PlanActions({
   pricing: BillingCyclePricing;
   currentCycle: BillingCycle;
   nextChargeLabel: string | null;
+  cardLast4: string | null;
+  cardBrand: string | null;
 }) {
   // Trial users get the checkout path.
   if (mode === "trial") {
@@ -64,7 +71,12 @@ export function PlanActions({
 
   return (
     <>
-      <PaymentMethodRow autopay={autopay} nextChargeLabel={nextChargeLabel} />
+      <PaymentMethodRow
+        autopay={autopay}
+        nextChargeLabel={nextChargeLabel}
+        cardLast4={cardLast4}
+        cardBrand={cardBrand}
+      />
       <CycleSwitch
         currentCycle={currentCycle}
         pricing={pricing}
@@ -75,41 +87,45 @@ export function PlanActions({
   );
 }
 
+const BRAND_LABEL: Record<string, string> = {
+  visa: "Visa",
+  mastercard: "Mastercard",
+  amex: "Amex",
+  elo: "Elo",
+  VISA: "Visa",
+  MASTERCARD: "Mastercard",
+  AMEX: "Amex",
+  ELO: "Elo",
+};
+
 /**
- * Payment-method panel for an active subscriber. Card autopay can refresh the
- * card on file by paying the open charge on the Asaas hosted page; manual
- * (Pix/boleto) subscribers just see how renewal works.
+ * Payment-method panel for an active subscriber. Card autopay shows the card on
+ * file and swaps it in place through our own form (tokenized, no charge, no
+ * hosted page). Manual (Pix/boleto) subscribers just see how renewal works.
  */
 function PaymentMethodRow({
   autopay,
   nextChargeLabel,
+  cardLast4,
+  cardBrand,
 }: {
   autopay: boolean;
   nextChargeLabel: string | null;
+  cardLast4: string | null;
+  cardBrand: string | null;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
 
-  async function onUpdateCard() {
-    setError(null);
-    setNote(null);
-    setLoading(true);
-    const res = await cardUpdateUrlAction();
-    if (res.error) {
-      setError(res.error);
-      setLoading(false);
-      return;
-    }
-    if (res.url) {
-      window.location.href = res.url;
-      return;
-    }
-    setNote(
-      "Nenhuma cobrança em aberto agora. Você poderá trocar o cartão na próxima fatura.",
-    );
-    setLoading(false);
+  async function onSubmit(card: RawCard): Promise<string | null> {
+    const res = await updateCardAction(card);
+    if (!res.ok) return res.error ?? "Não foi possível trocar o cartão.";
+    setOpen(false);
+    router.refresh();
+    return null;
   }
+
+  const brand = cardBrand ? (BRAND_LABEL[cardBrand] ?? cardBrand) : null;
 
   return (
     <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)] sm:p-7">
@@ -120,44 +136,37 @@ function PaymentMethodRow({
           </h3>
           <p className="mt-1.5 text-[0.88rem] text-muted">
             {autopay
-              ? `Cartão de crédito · renovação automática${nextChargeLabel ? ` em ${nextChargeLabel}` : ""}.`
+              ? cardLast4
+                ? `${brand ? `${brand} ` : "Cartão "}···· ${cardLast4} · renovação automática${nextChargeLabel ? ` em ${nextChargeLabel}` : ""}.`
+                : `Cartão de crédito · renovação automática${nextChargeLabel ? ` em ${nextChargeLabel}` : ""}.`
               : `Pix ou boleto · você paga a cada ciclo${nextChargeLabel ? `, próxima em ${nextChargeLabel}` : ""}.`}
           </p>
-          {autopay && (
-            <p className="mt-1.5 text-[0.82rem] text-muted">
-              Para trocar o cartão, pague a próxima fatura com o novo cartão —
-              ele passa a valer para as renovações seguintes. Sem fatura em
-              aberto, a troca fica disponível na próxima cobrança.
-            </p>
-          )}
         </div>
       </div>
-
-      {error && (
-        <div
-          role="alert"
-          className="mt-4 rounded-[var(--radius-input)] border border-danger/30 bg-danger-weak px-3.5 py-2.5 text-[0.85rem] text-danger"
-        >
-          {error}
-        </div>
-      )}
-      {note && (
-        <p className="mt-4 rounded-[var(--radius-input)] border border-line bg-paper-sunk px-3.5 py-2.5 text-[0.85rem] text-ink-soft">
-          {note}
-        </p>
-      )}
 
       {autopay && (
         <Button
           type="button"
           variant="secondary"
-          loading={loading}
-          onClick={onUpdateCard}
+          onClick={() => setOpen(true)}
           className="mt-5 w-full sm:w-auto"
         >
-          Atualizar cartão
+          Trocar cartão
         </Button>
       )}
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Trocar cartão"
+        description="O novo cartão passa a valer para as próximas renovações. Nada é cobrado agora."
+      >
+        <CardForm
+          onSubmit={onSubmit}
+          submitLabel="Salvar cartão"
+          note="Não cobramos nada agora. Não guardamos os dados do cartão."
+        />
+      </Modal>
     </section>
   );
 }

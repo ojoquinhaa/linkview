@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { signOut } from "@/lib/auth-client";
 import { cn } from "@/lib/cn";
@@ -11,18 +12,22 @@ function initials(name: string, email: string) {
   return source.slice(0, 2).toUpperCase();
 }
 
-export function UserMenu({
+/**
+ * Slim account menu for pages outside the dashboard (the /assinar flow). Shares
+ * the dashboard {@link UserMenu}'s visual language, the avatar chip and the
+ * dropdown shell, but carries only what these pages need: who you're signed in
+ * as, a way back to the app, and sign out. The dashboard link is shown only when
+ * the caller says the workspace can actually reach it, so a never-subscribed user
+ * is never bounced into a redirect loop.
+ */
+export function AccountMenu({
   name,
   email,
-  workspaceName,
-  planLabel,
-  roleLabel,
+  canAccessDashboard = false,
 }: {
   name: string;
   email: string;
-  workspaceName: string;
-  planLabel: string;
-  roleLabel: string;
+  canAccessDashboard?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -51,10 +56,9 @@ export function UserMenu({
     try {
       await signOut();
     } finally {
-      // Hard navigation, not router.push: a soft nav keeps the cached dashboard
-      // RSC (signed-in view) and can resolve /login against pre-logout state,
-      // bouncing the user back. A full reload re-runs every server component
-      // with the now-cleared session cookie.
+      // Hard navigation, not router.push: a soft nav keeps cached signed-in RSC
+      // and can bounce the user back. A full reload re-runs the server with the
+      // cleared session cookie.
       window.location.href = "/login";
     }
   };
@@ -72,11 +76,8 @@ export function UserMenu({
           open && "bg-paper-sunk",
         )}
       >
-        <span className="hidden min-w-0 text-right sm:block">
-          <span className="block max-w-[10rem] truncate text-[0.8rem] font-medium text-ink">
-            {name || email}
-          </span>
-          <span className="block text-[0.7rem] text-muted">{roleLabel}</span>
+        <span className="hidden max-w-[10rem] truncate pl-1 text-[0.82rem] font-medium text-ink-soft sm:block">
+          {name || email}
         </span>
         <span
           aria-hidden="true"
@@ -102,22 +103,23 @@ export function UserMenu({
 
           <div className="mx-1.5 my-1 border-t border-line" />
 
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 px-3 py-2 text-[0.8rem]">
-            <dt className="text-muted">Workspace</dt>
-            <dd className="truncate text-right font-medium text-ink-soft">
-              {workspaceName}
-            </dd>
-            <dt className="text-muted">Plano</dt>
-            <dd className="text-right font-medium text-ink-soft">
-              {planLabel}
-            </dd>
-            <dt className="text-muted">Acesso</dt>
-            <dd className="text-right font-medium text-ink-soft">
-              {roleLabel}
-            </dd>
-          </dl>
-
-          <div className="mx-1.5 my-1 border-t border-line" />
+          {canAccessDashboard && (
+            <Link
+              href="/dashboard/links"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex w-full items-center gap-2.5 rounded-[var(--radius-input)] px-3 py-2 text-[0.85rem] font-medium text-ink-soft transition-colors duration-150 ease-[var(--ease-out-quint)] hover:bg-paper-sunk hover:text-ink"
+            >
+              <Icon>
+                <path d="M3 12h18M3 6h18M3 18h18" opacity="0" />
+                <rect x="3" y="3" width="7" height="9" rx="1.5" />
+                <rect x="14" y="3" width="7" height="5" rx="1.5" />
+                <rect x="14" y="12" width="7" height="9" rx="1.5" />
+                <rect x="3" y="16" width="7" height="5" rx="1.5" />
+              </Icon>
+              Ir para o painel
+            </Link>
+          )}
 
           <button
             type="button"
@@ -126,25 +128,33 @@ export function UserMenu({
             disabled={loading}
             className="flex w-full items-center gap-2.5 rounded-[var(--radius-input)] px-3 py-2 text-[0.85rem] font-medium text-ink-soft transition-colors duration-150 ease-[var(--ease-out-quint)] hover:bg-paper-sunk hover:text-ink disabled:opacity-55"
           >
-            <svg
-              aria-hidden="true"
-              focusable="false"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="size-[18px] text-muted"
-            >
+            <Icon>
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <path d="m16 17 5-5-5-5" />
               <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
+            </Icon>
             {loading ? "Saindo…" : "Sair da conta"}
           </button>
         </div>
       )}
     </div>
+  );
+}
+
+function Icon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-[18px] text-muted"
+    >
+      {children}
+    </svg>
   );
 }

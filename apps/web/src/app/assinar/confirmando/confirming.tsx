@@ -22,7 +22,7 @@ const SLOW_POLL_MS = 10_000;
  * clears. If it drags on (boleto), it switches to a calm "we'll email you"
  * state rather than spinning forever.
  */
-export function Confirming({ invoiceUrl }: { invoiceUrl: string | null }) {
+export function Confirming({ payUrl }: { payUrl: string }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("confirming");
   const startedAt = useRef(Date.now());
@@ -127,13 +127,13 @@ export function Confirming({ invoiceUrl }: { invoiceUrl: string | null }) {
 
       {!done && (
         <div className="mt-6 flex flex-col gap-4 border-t border-line pt-5 text-center">
-          {invoiceUrl && (
-            <a
-              href={invoiceUrl}
+          {slow && (
+            <Link
+              href={payUrl}
               className="flex h-11 w-full items-center justify-center rounded-[var(--radius-input)] bg-accent px-5 text-[0.9rem] font-medium text-accent-ink shadow-[0_1px_2px_oklch(0.42_0.16_265/0.35)] transition-colors duration-150 ease-[var(--ease-out-quint)] hover:bg-accent-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
-              Pagar agora
-            </a>
+              Pagar com Pix
+            </Link>
           )}
           {slow && (
             <p className="flex items-center justify-center gap-2 text-[0.8rem] text-muted">
@@ -148,11 +148,8 @@ export function Confirming({ invoiceUrl }: { invoiceUrl: string | null }) {
             Voltar aos planos
           </Link>
           <p className="text-[0.78rem] leading-relaxed text-muted">
-            {invoiceUrl
-              ? "Pague pelo link acima para liberar seu acesso. "
-              : "Você pode sair desta tela. "}
-            O pagamento continua sendo confirmado e avisamos por e-mail quando
-            cair.
+            Você pode sair desta tela. O pagamento continua sendo confirmado e
+            avisamos por e-mail quando cair.
           </p>
         </div>
       )}

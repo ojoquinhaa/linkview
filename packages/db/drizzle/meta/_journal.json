@@ -57,6 +57,20 @@
       "when": 1782415602943,
       "tag": "0007_flaky_genesis",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782620426506,
+      "tag": "0008_subscription_card_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782670723086,
+      "tag": "0009_silky_frank_castle",
+      "breakpoints": true
     }
   ]
 }

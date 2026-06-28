@@ -1,9 +1,9 @@
 "use client";
 import type { BillingCycle } from "@linkview/shared";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { createCheckout } from "@/server/billing/actions";
 
 const brl = (cents: number) =>
   (cents / 100).toLocaleString("pt-BR", {
@@ -31,9 +31,8 @@ export interface BillingCyclePricing {
 /**
  * Pro pricing block: a monthly headline price with a single, clickable annual
  * row beneath it. Selecting the row switches the checkout to the yearly cycle
- * (and reflects the lower per-month equivalent). CPF/CNPJ + phone are already
- * on file from sign-up, so the button hands straight off to the Asaas hosted
- * checkout for the chosen cycle.
+ * (and reflects the lower per-month equivalent). Both payment methods (card and
+ * Pix) hand off to our own in-app checkout page — no Asaas hosted page.
  */
 export function BillingCycleChoice({
   pricing,
@@ -46,29 +45,19 @@ export function BillingCycleChoice({
   defaultCycle?: BillingCycle;
   cta?: string;
 }) {
+  const router = useRouter();
   const [cycle, setCycle] = useState<BillingCycle>(defaultCycle);
-  // Default to card auto-renewal: no missed-payment lapses, no manual invoice.
+  // Default to card auto-renewal: no missed-payment lapses, no manual charge.
   const [autopay, setAutopay] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const annual = cycle === "yearly";
 
-  async function onCheckout() {
-    setError(null);
+  function onCheckout() {
+    // Both methods go to our own in-app checkout page (no Asaas hosted page).
+    // Card is captured, tokenized, and charged there; Pix renders a QR + code.
     setLoading(true);
-    try {
-      const res = await createCheckout(cycle, autopay);
-      if (res.error || !res.url) {
-        setError(res.error ?? "Não foi possível continuar.");
-        setLoading(false);
-        return;
-      }
-      // Hand off to the Asaas hosted checkout (Pix / boleto / cartão).
-      window.location.href = res.url;
-    } catch {
-      setError("Não foi possível continuar. Tente novamente.");
-      setLoading(false);
-    }
+    const method = autopay ? "card" : "pix";
+    router.push(`/assinar/pagamento?cycle=${cycle}&method=${method}`);
   }
 
   const headlineCents = annual
@@ -126,7 +115,7 @@ export function BillingCycleChoice({
         </span>
       </button>
 
-      {/* Payment method: card auto-renews; Pix/boleto is paid each cycle. */}
+      {/* Payment method: card auto-renews; Pix is paid each cycle. */}
       <div className="grid grid-cols-2 gap-2">
         <MethodOption
           selected={autopay}
@@ -137,19 +126,10 @@ export function BillingCycleChoice({
         <MethodOption
           selected={!autopay}
           onClick={() => setAutopay(false)}
-          title="Pix ou boleto"
+          title="Pix"
           subtitle="Pago a cada ciclo"
         />
       </div>
-
-      {error && (
-        <div
-          role="alert"
-          className="rounded-[var(--radius-input)] border border-danger/30 bg-danger-weak px-3.5 py-2.5 text-[0.85rem] text-danger"
-        >
-          {error}
-        </div>
-      )}
 
       <Button
         type="button"
@@ -164,8 +144,8 @@ export function BillingCycleChoice({
       <p className="flex items-center justify-center gap-1.5 text-center text-[0.78rem] text-muted">
         <Lock />
         {autopay
-          ? "Cartão seguro via Asaas · cancele quando quiser"
-          : "Pagamento seguro via Asaas · Pix ou boleto"}
+          ? "Checkout próprio e criptografado · cancele quando quiser"
+          : "Pague com Pix · QR Code na próxima tela"}
       </p>
     </div>
   );

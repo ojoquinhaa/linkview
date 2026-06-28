@@ -29,6 +29,19 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Asaas payment statuses that mean the money cleared. */
 const PAID_STATUSES = new Set(["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"]);
 
+/**
+ * Statuses a *card* token charge may legitimately hold right after creation: it
+ * either cleared (paid) or is in anti-fraud review (`AWAITING_RISK_ANALYSIS`).
+ * Anything else — a charge left PENDING/OVERDUE with no capture — means the card
+ * was refused. Asaas usually returns an error for a declined card, but it can
+ * also create the subscription and hand back a non-cleared charge with HTTP 200;
+ * we treat that as a decline instead of stranding the user on the poll screen.
+ */
+const CARD_SETTLING_STATUSES = new Set([
+  ...PAID_STATUSES,
+  "AWAITING_RISK_ANALYSIS",
+]);
+
 /** Asaas billingType → the receipt email's method label key. */
 export function mapBillingMethod(
   billingType: string | undefined,
@@ -184,29 +197,30 @@ async function ensureCustomer(
   return customer.id;
 }
 
-export interface CheckoutResult {
-  /** Asaas hosted payment page (Pix / boleto / card). */
-  invoiceUrl: string;
+export interface PixCheckoutResult {
+  /** Base64 PNG of the Pix QR (no data-URI prefix). */
+  encodedImage: string;
+  /** EMV "Pix Copia e Cola" code. */
+  payload: string;
+  /** ISO timestamp when the QR expires, or null. */
+  expiresAt: string | null;
+  /** Charge amount in cents, for the on-screen summary. */
+  amountCents: number;
 }
 
 /**
- * Create (or refresh) a paid subscription for the workspace and return the
- * hosted checkout URL. The subscription stays `pending` until the Asaas
- * webhook confirms the first payment, which flips it to `active` and promotes
- * the workspace plan.
+ * Create (or refresh) a Pix subscription for the workspace and return the Pix
+ * QR + copy-paste code, rendered in-app — no Asaas hosted page. The first charge
+ * is generated immediately; the subscription stays `pending` until the payment
+ * confirms (webhook, or the "Já paguei" reconcile poll), which flips it `active`
+ * and promotes the workspace plan. Renews each cycle as a fresh Pix charge.
  */
-export async function startSubscription(
+export async function startPixSubscription(
   workspaceId: string,
   planKey: PlanKey,
   input: CheckoutInput,
   cycle: BillingCycle = "monthly",
-  /**
-   * When true, the hosted checkout captures a credit card and Asaas auto-charges
-   * every renewal. When false (default), the payer picks Pix / boleto / card and
-   * pays each cycle manually.
-   */
-  autopay = false,
-): Promise<CheckoutResult> {
+): Promise<PixCheckoutResult> {
   const plan = getPlan(planKey);
   const priceCents = getCyclePriceCents(planKey, cycle);
   if (priceCents <= 0) {
@@ -223,11 +237,7 @@ export async function startSubscription(
     description: `linkview ${plan.name} (${cycle === "yearly" ? "anual" : "mensal"})`,
     externalReference: workspaceId,
     cycle: cycle === "yearly" ? "YEARLY" : "MONTHLY",
-    billingType: autopay ? "CREDIT_CARD" : "UNDEFINED",
-    callback: {
-      successUrl: `${appUrl()}/assinar/confirmando`,
-      autoRedirect: true,
-    },
+    billingType: "PIX",
   });
 
   // One subscription row per workspace: refresh it on re-checkout.
@@ -248,15 +258,19 @@ export async function startSubscription(
         providerSubscriptionId: sub.id,
         status: "pending",
         billingCycle: cycle,
-        autopay,
+        // Pix is paid manually each cycle: no card on file, no autopay.
+        autopay: false,
+        cardToken: null,
+        cardLast4: null,
+        cardBrand: null,
         cancelAtPeriodEnd: false,
         canceledAt: null,
       })
       .where(eq(subscriptions.id, existing.id));
     // The new Asaas subscription supersedes any prior one for this workspace.
     // Cancel the old one so its leftover (often overdue) charges stop competing
-    // — otherwise `getOpenInvoiceUrl` can keep surfacing a stale invoice and the
-    // user pays into a dead subscription. Best-effort: never block checkout.
+    // and the user pays into the live subscription. Best-effort: never block
+    // checkout.
     if (
       existing.providerSubscriptionId &&
       existing.providerSubscriptionId !== sub.id
@@ -275,16 +289,251 @@ export async function startSubscription(
       providerSubscriptionId: sub.id,
       status: "pending",
       billingCycle: cycle,
-      autopay,
+      autopay: false,
     });
   }
 
+  // Pull the first charge and its Pix QR. The subscription always creates one
+  // charge synchronously; fetch its dynamic Pix payload to show in-app.
   const payments = await asaas.getSubscriptionPayments(sub.id);
-  const invoiceUrl = payments[0]?.invoiceUrl;
-  if (!invoiceUrl) {
-    throw new Error("Asaas não retornou um link de pagamento.");
+  const charge = payments.find((p) => p.billingType === "PIX") ?? payments[0];
+  if (!charge) {
+    throw new Error("Asaas não gerou a cobrança Pix.");
   }
-  return { invoiceUrl };
+  const qr = await asaas.getPixQrCode(charge.id);
+  if (!qr?.payload || !qr.encodedImage) {
+    throw new Error("Asaas não retornou o QR Code do Pix.");
+  }
+  return {
+    encodedImage: qr.encodedImage,
+    payload: qr.payload,
+    expiresAt: qr.expirationDate ?? null,
+    amountCents: priceCents,
+  };
+}
+
+/** Buyer + card identity for our own card checkout, on top of {@link CheckoutInput}. */
+export interface CardCheckoutInput extends CheckoutInput {
+  /** CEP, digits only. */
+  postalCode: string;
+  addressNumber: string;
+}
+
+/** Build the anti-fraud holder info Asaas requires, normalizing to digits. */
+function holderInfo(input: CardCheckoutInput): asaas.AsaasCardHolderInfo {
+  return {
+    name: input.name,
+    email: input.email,
+    cpfCnpj: input.cpfCnpj.replace(/\D/g, ""),
+    postalCode: input.postalCode.replace(/\D/g, ""),
+    addressNumber: input.addressNumber,
+    phone: (input.phone ?? "").replace(/\D/g, ""),
+  };
+}
+
+export interface CardCheckoutResult {
+  /** `active` once the synchronous first charge clears (the common case);
+   * `pending` if Asaas accepted the card but hasn't settled yet (webhook will
+   * finish the activation). A declined card throws instead. */
+  status: "active" | "pending";
+  /** Card metadata for an immediate confirmation, no extra round-trip. */
+  card: { last4: string; brand: string };
+}
+
+/**
+ * Subscribe a workspace to a paid plan with a credit card captured by our own
+ * checkout — no Asaas hosted page. The card is tokenized (PAN never stored), the
+ * subscription is created on that token so Asaas charges the first cycle
+ * synchronously, and we reconcile right away so the user lands active. A declined
+ * card surfaces as a thrown error from the Asaas call.
+ */
+export async function startCardSubscription(
+  workspaceId: string,
+  planKey: PlanKey,
+  input: CardCheckoutInput,
+  card: asaas.AsaasCard,
+  remoteIp: string,
+  cycle: BillingCycle = "monthly",
+): Promise<CardCheckoutResult> {
+  const plan = getPlan(planKey);
+  const priceCents = getCyclePriceCents(planKey, cycle);
+  if (priceCents <= 0) {
+    throw new Error("O plano gratuito não exige pagamento.");
+  }
+  const db = getDb();
+  const row = await planRow(db, planKey);
+  const customerId = await ensureCustomer(db, workspaceId, input);
+
+  // PAN/CCV reach Asaas only here; we keep just the token + display metadata.
+  const tokenized = await asaas.tokenizeCard({
+    customer: customerId,
+    creditCard: card,
+    creditCardHolderInfo: holderInfo(input),
+    remoteIp,
+  });
+
+  const sub = await asaas.createSubscription({
+    customer: customerId,
+    value: priceCents / 100,
+    nextDueDate: new Date().toISOString().slice(0, 10),
+    description: `linkview ${plan.name} (${cycle === "yearly" ? "anual" : "mensal"})`,
+    externalReference: workspaceId,
+    cycle: cycle === "yearly" ? "YEARLY" : "MONTHLY",
+    billingType: "CREDIT_CARD",
+    creditCardToken: tokenized.creditCardToken,
+    remoteIp,
+  });
+
+  const cardFields = {
+    autopay: true,
+    cardToken: tokenized.creditCardToken,
+    cardLast4: tokenized.creditCardNumber,
+    cardBrand: tokenized.creditCardBrand,
+  };
+
+  // One subscription row per workspace: refresh on re-checkout, cancel any stale
+  // Asaas subscription so its leftover charges stop competing.
+  const [existing] = await db
+    .select({
+      id: subscriptions.id,
+      providerSubscriptionId: subscriptions.providerSubscriptionId,
+    })
+    .from(subscriptions)
+    .where(eq(subscriptions.workspaceId, workspaceId))
+    .limit(1);
+  if (existing) {
+    await db
+      .update(subscriptions)
+      .set({
+        planId: row.id,
+        provider: "asaas",
+        providerSubscriptionId: sub.id,
+        status: "pending",
+        billingCycle: cycle,
+        cancelAtPeriodEnd: false,
+        canceledAt: null,
+        ...cardFields,
+      })
+      .where(eq(subscriptions.id, existing.id));
+    if (
+      existing.providerSubscriptionId &&
+      existing.providerSubscriptionId !== sub.id
+    ) {
+      await asaas
+        .cancelSubscription(existing.providerSubscriptionId)
+        .catch((err) =>
+          console.error("billing.stale_subscription_cancel_failed", err),
+        );
+    }
+  } else {
+    await db.insert(subscriptions).values({
+      workspaceId,
+      planId: row.id,
+      provider: "asaas",
+      providerSubscriptionId: sub.id,
+      status: "pending",
+      billingCycle: cycle,
+      ...cardFields,
+    });
+  }
+
+  // Card charges settle synchronously: reconcile now so the user lands active
+  // without waiting on the webhook. If it hasn't settled yet, stay pending and
+  // let the webhook finish — but never fail the checkout over it.
+  let active = false;
+  try {
+    active = await reconcilePendingSubscription(workspaceId);
+  } catch (err) {
+    console.error("billing.card_checkout_reconcile_failed", err);
+  }
+
+  // Not active yet: make sure the charge is genuinely still settling and not a
+  // card Asaas refused while still returning HTTP 200. A refused card would
+  // otherwise route the user to /confirmando to poll forever. Surface it as a
+  // decline (the `Asaas <code>:` prefix lets the action show a clean message)
+  // and cancel the dead subscription so a retry starts clean.
+  if (!active) {
+    const payments = await asaas
+      .getSubscriptionPayments(sub.id)
+      .catch(() => [] as asaas.AsaasPayment[]);
+    const charge = payments[0];
+    if (!charge || !CARD_SETTLING_STATUSES.has(charge.status)) {
+      await asaas.cancelSubscription(sub.id).catch(() => {});
+      throw new Error(
+        "Asaas 402: Pagamento não autorizado. Confira os dados ou use outro cartão.",
+      );
+    }
+  }
+
+  return {
+    status: active ? "active" : "pending",
+    card: {
+      last4: tokenized.creditCardNumber,
+      brand: tokenized.creditCardBrand,
+    },
+  };
+}
+
+/**
+ * Swap the card on an active card subscription via our own form (no hosted
+ * page). Tokenizes the new card, points the Asaas subscription at it (which also
+ * rewrites any open charge), and stores the new display metadata. Nothing is
+ * charged now.
+ */
+export async function changeCard(
+  workspaceId: string,
+  input: CardCheckoutInput,
+  card: asaas.AsaasCard,
+  remoteIp: string,
+): Promise<{ last4: string; brand: string }> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: subscriptions.id,
+      providerSubscriptionId: subscriptions.providerSubscriptionId,
+    })
+    .from(subscriptions)
+    .where(eq(subscriptions.workspaceId, workspaceId))
+    .limit(1);
+  if (!row?.providerSubscriptionId) {
+    throw new Error("Nenhuma assinatura ativa para trocar o cartão.");
+  }
+
+  const [customer] = await db
+    .select({ providerCustomerId: billingCustomers.providerCustomerId })
+    .from(billingCustomers)
+    .where(eq(billingCustomers.workspaceId, workspaceId))
+    .limit(1);
+  if (!customer?.providerCustomerId) {
+    throw new Error("Cadastro de cobrança não encontrado.");
+  }
+
+  const tokenized = await asaas.tokenizeCard({
+    customer: customer.providerCustomerId,
+    creditCard: card,
+    creditCardHolderInfo: holderInfo(input),
+    remoteIp,
+  });
+
+  await asaas.updateSubscriptionCard(row.providerSubscriptionId, {
+    creditCardToken: tokenized.creditCardToken,
+    remoteIp,
+  });
+
+  await db
+    .update(subscriptions)
+    .set({
+      autopay: true,
+      cardToken: tokenized.creditCardToken,
+      cardLast4: tokenized.creditCardNumber,
+      cardBrand: tokenized.creditCardBrand,
+    })
+    .where(eq(subscriptions.id, row.id));
+
+  return {
+    last4: tokenized.creditCardNumber,
+    brand: tokenized.creditCardBrand,
+  };
 }
 
 export interface WorkspaceSubscription {
@@ -295,6 +544,10 @@ export interface WorkspaceSubscription {
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   autopay: boolean;
+  /** Last 4 digits of the card on file, or null (manual / no card yet). */
+  cardLast4: string | null;
+  /** Brand label of the card on file, or null. */
+  cardBrand: string | null;
 }
 
 /** Current subscription + plan for a workspace, or null if never subscribed. */
@@ -311,6 +564,8 @@ export async function getWorkspaceSubscription(
       currentPeriodEnd: subscriptions.currentPeriodEnd,
       cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
       autopay: subscriptions.autopay,
+      cardLast4: subscriptions.cardLast4,
+      cardBrand: subscriptions.cardBrand,
     })
     .from(subscriptions)
     .innerJoin(plans, eq(subscriptions.planId, plans.id))
@@ -386,6 +641,34 @@ export async function reconcilePendingSubscription(
   const paid = payments.find((p) => PAID_STATUSES.has(p.status));
   if (!paid) return false;
 
+  const [plan] = await db
+    .select({ key: plans.key })
+    .from(plans)
+    .where(eq(plans.id, row.planId))
+    .limit(1);
+
+  // Defense in depth (mirrors the webhook): only activate when the cleared charge
+  // covers the plan's price for the billing cycle. The amount is set by us when
+  // creating the Asaas subscription, so a shortfall means a stale/divergent charge
+  // surfaced in the payments list — never promote the plan off of it.
+  if (plan && paid.value != null) {
+    const amountCents = Math.round(paid.value * 100);
+    const expectedCents = getCyclePriceCents(
+      plan.key as PlanKey,
+      row.billingCycle,
+    );
+    if (amountCents < expectedCents) {
+      console.error("billing.reconcile_amount_mismatch", {
+        workspaceId,
+        planKey: plan.key,
+        cycle: row.billingCycle,
+        amountCents,
+        expectedCents,
+      });
+      return false;
+    }
+  }
+
   const paidIso = paid.confirmedDate ?? paid.paymentDate ?? null;
   const paidAt = paidIso ? new Date(paidIso) : new Date();
   const currentPeriodEnd =
@@ -402,11 +685,6 @@ export async function reconcilePendingSubscription(
     })
     .where(eq(subscriptions.id, row.id));
 
-  const [plan] = await db
-    .select({ key: plans.key })
-    .from(plans)
-    .where(eq(plans.id, row.planId))
-    .limit(1);
   if (plan) {
     await db
       .update(workspaces)
@@ -559,9 +837,10 @@ async function sendCancellationEmail(
  * once it lapses the cron demotes to free and the user must subscribe again.
  *
  * Card autopay needs no redirect: the recreated subscription's first charge is a
- * future-dated PENDING payment, which `getOpenInvoiceUrl` surfaces — so the
- * normal "Atualizar cartão" button on the plan page recaptures the card whenever
- * the customer chooses, with no charge today and no payment page to get stuck on.
+ * future-dated PENDING payment, and the normal "Atualizar cartão" button on the
+ * plan page recaptures the card whenever the customer chooses, with no charge
+ * today and no payment page to get stuck on. Pix resumes generate a future-dated
+ * Pix charge the customer pays when it comes due.
  */
 export async function resumeSubscription(workspaceId: string): Promise<void> {
   const db = getDb();
@@ -615,11 +894,7 @@ export async function resumeSubscription(workspaceId: string): Promise<void> {
     description: `linkview ${plan.name} (${row.billingCycle === "yearly" ? "anual" : "mensal"})`,
     externalReference: workspaceId,
     cycle: row.billingCycle === "yearly" ? "YEARLY" : "MONTHLY",
-    billingType: row.autopay ? "CREDIT_CARD" : "UNDEFINED",
-    callback: {
-      successUrl: `${appUrl()}/dashboard/planos`,
-      autoRedirect: true,
-    },
+    billingType: row.autopay ? "CREDIT_CARD" : "PIX",
   });
 
   await db
@@ -634,48 +909,4 @@ export async function resumeSubscription(workspaceId: string): Promise<void> {
 
   // Defensive: ensure the workspace's links are online again.
   await unlockWorkspaceLinks(workspaceId);
-}
-
-/** Asaas payment statuses that are still awaiting payment. */
-const OPEN_PAYMENT_STATUSES = new Set([
-  "OVERDUE",
-  "PENDING",
-  "AWAITING_RISK_ANALYSIS",
-]);
-
-/**
- * Hosted invoice URL of the workspace's earliest unpaid charge, or null when
- * nothing is open. Paying it on the Asaas page lets a card-autopay customer
- * settle an overdue charge and swap the card on file (the new card is reused for
- * future renewals). Overdue charges take priority over upcoming ones.
- */
-export async function getOpenInvoiceUrl(
-  workspaceId: string,
-): Promise<string | null> {
-  const db = getDb();
-  const [row] = await db
-    .select({ providerSubscriptionId: subscriptions.providerSubscriptionId })
-    .from(subscriptions)
-    .where(eq(subscriptions.workspaceId, workspaceId))
-    .limit(1);
-  if (!row?.providerSubscriptionId) return null;
-
-  let payments: Awaited<ReturnType<typeof asaas.getSubscriptionPayments>>;
-  try {
-    payments = await asaas.getSubscriptionPayments(row.providerSubscriptionId);
-  } catch (err) {
-    console.error("billing.open_invoice_fetch_failed", err);
-    return null;
-  }
-
-  const open = payments
-    .filter((p) => OPEN_PAYMENT_STATUSES.has(p.status) && p.invoiceUrl)
-    .sort((a, b) => {
-      // Overdue first, then by soonest due date.
-      const ao = a.status === "OVERDUE" ? 0 : 1;
-      const bo = b.status === "OVERDUE" ? 0 : 1;
-      if (ao !== bo) return ao - bo;
-      return (a.dueDate ?? "").localeCompare(b.dueDate ?? "");
-    });
-  return open[0]?.invoiceUrl ?? null;
 }

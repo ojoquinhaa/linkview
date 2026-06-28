@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/trial-maintenance",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/kv-resync",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
