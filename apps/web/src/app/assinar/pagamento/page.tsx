@@ -40,16 +40,24 @@ function maskDocument(digits: string): string {
 export default async function PagamentoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cycle?: string; method?: string }>;
+  searchParams: Promise<{ cycle?: string; method?: string; switch?: string }>;
 }) {
   const session = await requireSession();
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) redirect("/login");
 
-  // Already paying? Don't show a second checkout.
+  const params = await searchParams;
+  const cycle = params.cycle === "yearly" ? "yearly" : "monthly";
+  const initialMethod = params.method === "pix" ? "pix" : "card";
+
+  // Already paying? Don't show a second checkout — UNLESS this is an explicit
+  // cycle switch (?switch=1 to a *different* cycle): an active subscriber comes
+  // here to pay the new cycle now, with the unused days credited as extra time.
   const sub = await getWorkspaceSubscription(workspace.id);
   const access = resolveSubscriptionAccess(sub);
-  if (access === "full") redirect("/dashboard/links");
+  const switching =
+    params.switch === "1" && sub != null && sub.billingCycle !== cycle;
+  if (access === "full" && !switching) redirect("/dashboard/links");
 
   const db = getDb();
   const [profile] = await db
@@ -64,9 +72,6 @@ export default async function PagamentoPage({
   // Fiscal data is captured at sign-up; without it Asaas can't run anti-fraud.
   if (!profile?.document) redirect("/assinar");
 
-  const params = await searchParams;
-  const cycle = params.cycle === "yearly" ? "yearly" : "monthly";
-  const initialMethod = params.method === "pix" ? "pix" : "card";
   const plan = getPlan("pro");
   const priceCents = getCyclePriceCents("pro", cycle);
   const annual = cycle === "yearly";
@@ -128,6 +133,16 @@ export default async function PagamentoPage({
               </span>
             </div>
           </div>
+
+          {switching && (
+            <div className="border-t border-line bg-accent-weak/40 px-6 py-3 sm:px-7">
+              <p className="text-[0.8rem] text-ink-soft">
+                Você está trocando de plano. Paga o valor acima agora; os dias
+                restantes do seu período atual entram como tempo extra no novo
+                período.
+              </p>
+            </div>
+          )}
 
           {/* Billing data reused from the profile, shown read-only. */}
           <div className="border-t border-line px-6 py-4 sm:px-7">

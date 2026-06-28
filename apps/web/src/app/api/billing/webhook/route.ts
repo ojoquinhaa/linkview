@@ -17,6 +17,7 @@ import {
 } from "@/lib/email";
 import { lockWorkspaceLinks, unlockWorkspaceLinks } from "@/lib/kv";
 import {
+  activatedPeriodEnd,
   mapBillingMethod,
   sendReceiptEmailOnce,
 } from "@/server/billing/subscription";
@@ -52,23 +53,6 @@ interface AsaasPayload {
     id: string;
     externalReference?: string;
   };
-}
-
-function addMonth(from: Date): Date {
-  const d = new Date(from);
-  d.setMonth(d.getMonth() + 1);
-  return d;
-}
-
-function addYear(from: Date): Date {
-  const d = new Date(from);
-  d.setFullYear(d.getFullYear() + 1);
-  return d;
-}
-
-/** Next renewal date for a paid period that just started, by billing cadence. */
-function periodEnd(from: Date, cycle: string): Date {
-  return cycle === "yearly" ? addYear(from) : addMonth(from);
 }
 
 /** Public app origin, trimmed (a CRLF in the env var would break links). */
@@ -128,6 +112,7 @@ async function resolveSubscription(
         planId: subscriptions.planId,
         billingCycle: subscriptions.billingCycle,
         cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
+        currentPeriodStart: subscriptions.currentPeriodStart,
         currentPeriodEnd: subscriptions.currentPeriodEnd,
       })
       .from(subscriptions)
@@ -143,6 +128,7 @@ async function resolveSubscription(
         planId: subscriptions.planId,
         billingCycle: subscriptions.billingCycle,
         cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
+        currentPeriodStart: subscriptions.currentPeriodStart,
         currentPeriodEnd: subscriptions.currentPeriodEnd,
       })
       .from(subscriptions)
@@ -243,7 +229,14 @@ export async function POST(request: Request) {
       const paidAt = payload.payment?.confirmedDate
         ? new Date(payload.payment.confirmedDate)
         : new Date();
-      const renewsAt = periodEnd(paidAt, sub.billingCycle);
+      // Credit any unused time from the prior period (cycle switch / early
+      // renewal) onto the new period, exactly once.
+      const renewsAt = activatedPeriodEnd({
+        paidAt,
+        cycle: sub.billingCycle,
+        prevStart: sub.currentPeriodStart,
+        prevEnd: sub.currentPeriodEnd,
+      });
       await db
         .update(subscriptions)
         .set({

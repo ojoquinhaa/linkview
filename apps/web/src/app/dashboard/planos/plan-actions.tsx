@@ -13,7 +13,6 @@ import type { RawCard } from "@/lib/card";
 import {
   cancelSubscriptionAction,
   resumeSubscriptionAction,
-  switchBillingCycleAction,
   updateCardAction,
 } from "@/server/billing/actions";
 
@@ -27,8 +26,9 @@ const brl = (cents: number) =>
 
 /**
  * Action zone for the plan page. Upgrades reuse the monthly/annual checkout
- * inline (no modal); active subscribers can switch cycle in place; cancellation
- * is a two-step inline confirm so it never fires by accident.
+ * inline (no modal); active subscribers switch cycle through that same checkout
+ * (pay the new cycle now, unused days credited as extra time); cancellation is a
+ * two-step inline confirm so it never fires by accident.
  */
 export function PlanActions({
   mode,
@@ -80,7 +80,7 @@ export function PlanActions({
       <CycleSwitch
         currentCycle={currentCycle}
         pricing={pricing}
-        nextChargeLabel={nextChargeLabel}
+        autopay={autopay}
       />
       <CancelRow />
     </>
@@ -172,42 +172,32 @@ function PaymentMethodRow({
 }
 
 /**
- * In-place monthly ⇄ annual switch for an active subscriber. The change applies
- * at the next renewal with no charge today and no loss of access, so it's a
- * single inline confirm rather than a checkout.
+ * Monthly ⇄ annual switch for an active subscriber. Centralized on our own
+ * checkout: the button routes to /assinar/pagamento for the target cycle, which
+ * charges the new cycle now and credits the unused days of the current period as
+ * extra time on the new period (no Asaas hosted page, no in-place edit).
  */
 function CycleSwitch({
   currentCycle,
   pricing,
-  nextChargeLabel,
+  autopay,
 }: {
   currentCycle: BillingCycle;
   pricing: BillingCyclePricing;
-  nextChargeLabel: string | null;
+  autopay: boolean;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const target: BillingCycle = currentCycle === "yearly" ? "monthly" : "yearly";
   const toAnnual = target === "yearly";
 
-  async function onSwitch() {
-    setError(null);
+  function onSwitch() {
     setLoading(true);
-    const res = await switchBillingCycleAction(target);
-    if (!res.ok) {
-      setError(res.error ?? "Não foi possível alterar o ciclo.");
-      setLoading(false);
-      return;
-    }
-    // router.refresh() re-renders the server tree but keeps this client
-    // component mounted, so its state survives. Reset it explicitly or the
-    // confirm button would spin forever even though the switch succeeded.
-    setConfirming(false);
-    setLoading(false);
-    router.refresh();
+    // Same payment method the user already pays with; both land on our checkout.
+    const method = autopay ? "card" : "pix";
+    router.push(`/assinar/pagamento?cycle=${target}&method=${method}&switch=1`);
   }
 
   const newPriceLine = toAnnual
@@ -234,27 +224,12 @@ function CycleSwitch({
         )}
       </div>
 
-      {error && (
-        <div
-          role="alert"
-          className="mt-4 rounded-[var(--radius-input)] border border-danger/30 bg-danger-weak px-3.5 py-2.5 text-[0.85rem] text-danger"
-        >
-          {error}
-        </div>
-      )}
-
       {confirming ? (
         <div className="mt-5">
           <p className="text-[0.85rem] text-ink-soft">
-            A mudança vale a partir da próxima cobrança
-            {nextChargeLabel ? (
-              <>
-                {" "}
-                (<span className="font-medium text-ink">{nextChargeLabel}</span>
-                )
-              </>
-            ) : null}
-            . Nada é cobrado agora e você não perde acesso.
+            Você paga {toAnnual ? "o valor anual" : "o valor mensal"} agora no
+            checkout. Os dias restantes do seu período atual entram como tempo
+            extra no novo período — você não perde nada.
           </p>
           <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
             <Button
@@ -263,7 +238,9 @@ function CycleSwitch({
               onClick={onSwitch}
               className="sm:w-auto"
             >
-              {toAnnual ? "Confirmar plano anual" : "Confirmar plano mensal"}
+              {toAnnual
+                ? "Ir para o checkout anual"
+                : "Ir para o checkout mensal"}
             </Button>
             <Button
               type="button"

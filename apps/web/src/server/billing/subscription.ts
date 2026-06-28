@@ -137,6 +137,35 @@ function addYear(from: Date): Date {
   return d;
 }
 
+/**
+ * Period end for an activating charge, crediting any unused time left on a
+ * still-running prior period exactly once. This is what makes a cycle switch
+ * "pay the new cycle now, keep the remaining days as extra time": the user
+ * re-checks out (which leaves the old `currentPeriodEnd` on the row until the new
+ * charge clears), and on activation we add the leftover to the new period.
+ *
+ * Idempotent across the CONFIRMED+RECEIVED pair and a webhook/poll race: the
+ * credit is only added on the *first* activation of this charge (detected by the
+ * stored `currentPeriodStart` predating `paidAt`); later events just preserve the
+ * already-credited end via the max(), never doubling it.
+ */
+export function activatedPeriodEnd(args: {
+  paidAt: Date;
+  cycle: BillingCycle;
+  prevStart: Date | null;
+  prevEnd: Date | null;
+}): Date {
+  const paid = args.paidAt.getTime();
+  const base = (
+    args.cycle === "yearly" ? addYear(args.paidAt) : addMonth(args.paidAt)
+  ).getTime();
+  const prevEnd = args.prevEnd?.getTime() ?? null;
+  const firstActivation = !args.prevStart || args.prevStart.getTime() < paid;
+  const credit =
+    firstActivation && prevEnd && prevEnd > paid ? prevEnd - paid : 0;
+  return new Date(Math.max(base + credit, prevEnd ?? base, base));
+}
+
 function appUrl(): string {
   // trim() guards against trailing whitespace/newlines baked into the env var
   // (e.g. a CRLF from `vercel env add` piped on Windows), which would otherwise
@@ -626,6 +655,8 @@ export async function reconcilePendingSubscription(
       providerSubscriptionId: subscriptions.providerSubscriptionId,
       planId: subscriptions.planId,
       billingCycle: subscriptions.billingCycle,
+      currentPeriodStart: subscriptions.currentPeriodStart,
+      currentPeriodEnd: subscriptions.currentPeriodEnd,
     })
     .from(subscriptions)
     .where(eq(subscriptions.workspaceId, workspaceId))
@@ -671,8 +702,13 @@ export async function reconcilePendingSubscription(
 
   const paidIso = paid.confirmedDate ?? paid.paymentDate ?? null;
   const paidAt = paidIso ? new Date(paidIso) : new Date();
-  const currentPeriodEnd =
-    row.billingCycle === "yearly" ? addYear(paidAt) : addMonth(paidAt);
+  // Credit any unused time from the prior period (cycle switch / early renewal).
+  const currentPeriodEnd = activatedPeriodEnd({
+    paidAt,
+    cycle: row.billingCycle,
+    prevStart: row.currentPeriodStart,
+    prevEnd: row.currentPeriodEnd,
+  });
 
   await db
     .update(subscriptions)
