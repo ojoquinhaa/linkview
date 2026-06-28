@@ -5,7 +5,6 @@ import {
 } from "@linkview/shared";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BillingCycleChoice } from "@/components/billing/billing-cycle-choice";
 import { PublicHeader } from "@/components/public-header";
 import {
   getWorkspaceSubscription,
@@ -15,11 +14,11 @@ import {
 import { getTrialEligibility } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
-import { TrialCta } from "./trial-cta";
+import { Plans } from "./plans";
 
 const PRO_PERKS = [
   "Até 500 links rastreáveis",
-  "QR Codes para cada link",
+  "QR Code para cada link",
   "Páginas de bio e canais",
   "Relatórios de origem, dispositivo e região",
   "Histórico de cliques por 1 ano",
@@ -42,25 +41,15 @@ export default async function AssinarPage() {
       console.error("billing.reconcile_failed", err);
     }
   }
-  // Anyone with live access belongs in the dashboard, not on the plans page —
-  // including a still-paid user whose latest charge is merely `pending` (a
-  // mid-upgrade re-checkout). Only lapsed/never-paid workspaces stay here.
+  // Anyone with live access belongs in the dashboard, not on the plans page.
   const access = resolveSubscriptionAccess(sub);
   if (access === "full") redirect("/dashboard/links");
   // A workspace that paid before but lapsed reaches the dashboard read-only, so
-  // /assinar must offer a way back instead of stranding it here on the plans.
+  // /assinar offers a way back instead of stranding it here on the plans.
   const canReturnToDashboard = access === "locked";
-  // A pending charge must NOT bounce back to the confirmation screen: that, plus
-  // the dashboard's paid-gate, funnels the user into an inescapable loop. Show
-  // the plans instead, with a banner that re-opens the in-app Pix checkout so the
-  // user can finish paying — no hosted page.
-  const resumePixHref =
-    sub?.status === "pending"
-      ? `/assinar/pagamento?method=pix&cycle=${sub.billingCycle}`
-      : null;
 
-  const plan = getPlan("pro");
   const savings = getAnnualSavings("pro");
+  const plan = getPlan("pro");
   const pricing = {
     monthlyCents: plan.priceCents,
     yearlyCents: savings.yearlyCents,
@@ -75,176 +64,46 @@ export default async function AssinarPage() {
   );
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-paper">
+    <div className="relative flex min-h-screen flex-col bg-paper lg:h-screen lg:overflow-hidden">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 [background:radial-gradient(120%_70%_at_50%_-10%,var(--accent-weak),transparent_55%)] opacity-70"
+        className="pointer-events-none absolute inset-0 [background:radial-gradient(120%_60%_at_50%_-10%,var(--accent-weak),transparent_55%)] opacity-70"
       />
       <PublicHeader
         user={{ name: session.user.name ?? "", email: session.user.email }}
         canAccessDashboard={canReturnToDashboard}
       />
 
-      <main className="relative z-10 flex flex-1 flex-col items-center px-6 pb-16">
-        <div className="mx-auto max-w-2xl pt-4 text-center sm:pt-8">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-line bg-accent-weak px-3 py-1 text-[0.78rem] font-medium text-accent-deep">
-            <Spark />
-            Links inteligentes, decisões melhores
-          </span>
-          <h1 className="mt-5 text-balance font-display text-[2rem] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[2.5rem]">
-            Escolha o plano ideal para você
+      <main className="relative z-10 flex flex-1 flex-col items-center px-6 pb-10 lg:min-h-0 lg:justify-center lg:overflow-y-auto lg:pb-6">
+        <div className="mx-auto max-w-xl pt-2 text-center sm:pt-4">
+          <h1 className="text-balance font-display text-[2rem] font-semibold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[2.4rem]">
+            Escolha seu plano
           </h1>
-          <p className="mx-auto mt-3 max-w-md text-pretty text-[0.95rem] text-muted">
-            Crie, gerencie e analise seus links com mais inteligência e
-            segurança.
+          <p className="mx-auto mt-2.5 max-w-sm text-pretty text-[0.92rem] text-muted">
+            {trial.eligible
+              ? "Comece grátis ou assine o Pro. Cancele quando quiser."
+              : "Tudo para criar, medir e crescer seus links. Cancele quando quiser."}
           </p>
         </div>
 
-        {sub?.status === "pending" && (
-          <div className="mt-8 w-full max-w-md rounded-2xl border border-accent-line bg-accent-weak p-4 text-left">
-            <p className="text-[0.9rem] font-medium text-ink">
-              Você tem um pagamento em aberto
-            </p>
-            <p className="mt-1 text-[0.85rem] text-muted">
-              Conclua o pagamento para liberar o acesso, ou escolha outro plano
-              abaixo.
-            </p>
-            {resumePixHref && (
-              <Link
-                href={resumePixHref}
-                className="mt-3 inline-flex h-10 items-center justify-center rounded-[var(--radius-input)] bg-accent px-4 text-[0.85rem] font-medium text-accent-ink transition-colors duration-150 ease-[var(--ease-out-quint)] hover:bg-accent-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
-              >
-                Continuar pagamento
-              </Link>
-            )}
-          </div>
-        )}
+        <div className="mt-7 flex w-full flex-col items-center">
+          <Plans
+            pricing={pricing}
+            perks={PRO_PERKS}
+            trialEligible={trial.eligible}
+            trialDays={TRIAL_DURATION_DAYS}
+          />
 
-        <div
-          className={`mt-10 grid w-full items-start gap-5 ${
-            trial.eligible ? "max-w-4xl sm:grid-cols-2" : "max-w-md grid-cols-1"
-          }`}
-        >
-          {trial.eligible && <TrialCta days={TRIAL_DURATION_DAYS} />}
-          <ProCard pricing={pricing} secondaryCta={trial.eligible} />
+          {canReturnToDashboard && (
+            <Link
+              href="/dashboard/links"
+              className="mt-6 inline-flex items-center gap-1.5 text-[0.86rem] font-medium text-accent hover:underline"
+            >
+              ← Voltar ao painel
+            </Link>
+          )}
         </div>
-
-        {canReturnToDashboard && (
-          <Link
-            href="/dashboard/links"
-            className="mt-8 inline-flex items-center gap-1.5 text-[0.88rem] font-medium text-accent hover:underline"
-          >
-            ← Voltar ao painel
-          </Link>
-        )}
       </main>
     </div>
-  );
-}
-
-function ProCard({
-  pricing,
-  secondaryCta,
-}: {
-  pricing: React.ComponentProps<typeof BillingCycleChoice>["pricing"];
-  /** When the trial is the primary action, the Pro card is the alternative. */
-  secondaryCta: boolean;
-}) {
-  return (
-    <div className="relative rounded-2xl border border-accent-line bg-surface p-6 shadow-[0_4px_24px_oklch(0.42_0.16_265/0.08)] sm:p-7">
-      <span className="-top-3 absolute left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[0.72rem] font-semibold text-accent-ink shadow-[0_2px_8px_oklch(0.42_0.16_265/0.3)]">
-        <Star />
-        Mais escolhido
-      </span>
-
-      <div className="flex items-center gap-3">
-        <span className="inline-flex size-11 items-center justify-center rounded-full bg-accent-weak text-accent">
-          <Bolt />
-        </span>
-        <div>
-          <h2 className="font-display text-[1.2rem] font-semibold tracking-[-0.02em] text-ink">
-            Plano Pro
-          </h2>
-          <p className="text-[0.85rem] text-muted">
-            Para quem leva links a sério.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-6">
-        <BillingCycleChoice pricing={pricing} secondary={secondaryCta} />
-      </div>
-
-      <ul className="mt-6 flex flex-col gap-2.5 border-t border-line pt-6">
-        {PRO_PERKS.map((perk) => (
-          <li
-            key={perk}
-            className="flex items-start gap-2.5 text-[0.88rem] text-ink-soft"
-          >
-            <Check />
-            {perk}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function Check() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 16 16"
-      className="mt-[3px] size-3.5 shrink-0 text-accent"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <title>Incluído</title>
-      <path d="M3 8.5 6.5 12 13 4" />
-    </svg>
-  );
-}
-
-function Spark() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 16 16"
-      className="size-3.5"
-      fill="currentColor"
-    >
-      <title>Destaque</title>
-      <path d="M8 0.5l1.6 4.3a3 3 0 0 0 1.6 1.6L15.5 8l-4.3 1.6a3 3 0 0 0-1.6 1.6L8 15.5l-1.6-4.3a3 3 0 0 0-1.6-1.6L0.5 8l4.3-1.6a3 3 0 0 0 1.6-1.6z" />
-    </svg>
-  );
-}
-
-function Star() {
-  return (
-    <svg aria-hidden viewBox="0 0 16 16" className="size-3" fill="currentColor">
-      <title>Destaque</title>
-      <path d="M8 1l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.8 4.2 12.8l.7-4.3-3.1-3 4.3-.6z" />
-    </svg>
-  );
-}
-
-function Bolt() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 24 24"
-      className="size-5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <title>Pro</title>
-      <path d="M13 2 4 14h7l-1 8 9-12h-7z" />
-    </svg>
   );
 }
