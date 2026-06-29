@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CreateLink } from "@/components/dashboard/create-link";
+import { CreateLinkTour } from "@/components/onboarding/link-tours";
 import { systemDomain } from "@/lib/env";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
@@ -35,9 +36,14 @@ export default async function NewLinkPage() {
       </Link>
 
       <header>
-        <h1 className="font-display text-[1.75rem] font-semibold tracking-[-0.02em] text-ink">
-          Criar link
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h1 className="font-display text-[1.75rem] font-semibold tracking-[-0.02em] text-ink">
+            Criar link
+          </h1>
+          <div className="pt-1">
+            <CreateLinkTour />
+          </div>
+        </div>
         <p className="mt-1 text-[0.92rem] text-muted">
           Monte um link de site, WhatsApp, Instagram, telefone ou e-mail e
           receba o QR Code na hora.

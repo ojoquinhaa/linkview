@@ -10,6 +10,7 @@ import { ClicksTrend } from "@/components/dashboard/charts/clicks-trend";
 import { DeviceDonutChart } from "@/components/dashboard/charts/device-donut-chart";
 import { ClicksTable } from "@/components/dashboard/clicks-table";
 import { CopyButton } from "@/components/dashboard/copy-button";
+import { LinkPeriodFilter } from "@/components/dashboard/link-period-filter";
 import { toUf, ufName } from "@/lib/br-states";
 import { systemDomain } from "@/lib/env";
 import { fetchClicksPage } from "@/server/link-clicks";
@@ -22,8 +23,13 @@ import {
 } from "@/server/links-query";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
+import { rangeLabel, resolveRange } from "@/server/workspace-analytics";
 
 const fmtNum = (n: number) => n.toLocaleString("pt-BR");
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const toISODay = (d: Date) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
 const fmtDay = (d: Date) =>
   new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(
@@ -96,8 +102,10 @@ const share = (n: number, of: number) =>
 
 export default async function LinkOverviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ periodo?: string; de?: string; ate?: string }>;
 }) {
   const session = await requireSession();
   const workspace = await getActiveWorkspace(session.user.id);
@@ -110,7 +118,8 @@ export default async function LinkOverviewPage({
   const domain = systemDomain();
   const shortUrl = `https://${domain}/${link.slug}`;
   const canMetrics = can(workspace.role, "metrics.view");
-  const analytics = canMetrics ? await getLinkAnalytics(link.id) : null;
+  const range = resolveRange(await searchParams);
+  const analytics = canMetrics ? await getLinkAnalytics(link.id, range) : null;
   const hasData = Boolean(analytics) && link.totalClicks > 0;
   const clicksInitial = hasData ? await fetchClicksPage(link.id, 0) : null;
   const channelTrends = hasData ? await getChannelTrends(link.id) : null;
@@ -128,15 +137,36 @@ export default async function LinkOverviewPage({
     analytics?.geoRegions.reduce((s, r) => s + r.total, 0) ?? 0;
 
   // Today's slice from the daily window — byDay is ISO-keyed, so match on the
-  // local day, falling back to the last bucket (the window always ends today).
+  // local day. A past custom range won't include today, so the card hides.
   const todayKey = new Date().toISOString().slice(0, 10);
-  const today =
-    analytics?.byDay.find((d) => d.date === todayKey) ??
-    analytics?.byDay.at(-1);
+  const today = analytics?.byDay.find((d) => d.date === todayKey) ?? null;
+
+  const periodLabel = rangeLabel(range);
+  const filterFrom = range.custom ? toISODay(range.start) : null;
+  const filterTo = range.custom
+    ? toISODay(new Date(range.end.getTime() - 86_400_000))
+    : null;
 
   return (
     <div className="flex flex-col gap-6">
-      {canMetrics && analytics && (
+      {canMetrics && link.totalClicks > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[0.85rem] text-muted">
+            Gráficos de{" "}
+            <span className="font-medium text-ink-soft">
+              {periodLabel.toLowerCase()}
+            </span>
+          </p>
+          <LinkPeriodFilter
+            days={range.days}
+            custom={range.custom}
+            from={filterFrom}
+            to={filterTo}
+          />
+        </div>
+      )}
+
+      {canMetrics && analytics && today && (
         <section className="overflow-hidden rounded-2xl border border-accent-line bg-accent-weak shadow-[0_1px_2px_oklch(0.42_0.16_265/0.08)]">
           <div className="flex items-center gap-2 px-5 pt-4">
             <span className="size-1.5 rounded-full bg-accent" />
@@ -295,7 +325,7 @@ export default async function LinkOverviewPage({
           </Panel>
         </>
       ) : (
-        <Panel title="Cliques nos últimos 14 dias">
+        <Panel title="Cliques no período">
           <div className="py-10 text-center">
             <p className="text-[0.95rem] font-medium text-ink-soft">
               Nenhum clique ainda

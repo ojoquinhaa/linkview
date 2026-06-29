@@ -185,6 +185,7 @@ export function CreateLink({ domain }: { domain: string }) {
         <div
           role="tablist"
           aria-label="Tipo de link"
+          data-tour="create-types"
           className="grid grid-cols-5 gap-1 rounded-xl bg-paper-sunk p-1"
         >
           {TABS.map((tab) => {
@@ -229,7 +230,12 @@ export function CreateLink({ domain }: { domain: string }) {
         </div>
 
         {/* Builder */}
-        <div id="builder-panel" role="tabpanel" className="mt-5">
+        <div
+          id="builder-panel"
+          role="tabpanel"
+          data-tour="create-builder"
+          className="mt-5"
+        >
           {type === "url" && (
             <Field label="Cole o link que você quer encurtar">
               {({ id, invalid: fieldInvalid }) => (
@@ -439,11 +445,17 @@ export function CreateLink({ domain }: { domain: string }) {
           <button
             type="button"
             onClick={() => setAdvanced((v) => !v)}
+            data-tour="create-advanced"
             className="text-[0.85rem] font-medium text-muted transition-colors hover:text-ink"
           >
             {advanced ? "− Menos opções" : "+ Personalizar link e título"}
           </button>
-          <Button type="submit" loading={pending} disabled={!ready}>
+          <Button
+            type="submit"
+            data-tour="create-submit"
+            loading={pending}
+            disabled={!ready}
+          >
             Criar link
           </Button>
         </div>

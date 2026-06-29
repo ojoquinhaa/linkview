@@ -64,19 +64,42 @@ export function LinkTabs({ slug }: { slug: string }) {
   const pathname = usePathname();
   const base = `/dashboard/links/${slug}`;
   const tabs = [
-    { label: "Visão geral", href: base, exact: true, Icon: OverviewIcon },
-    { label: "Canais", href: `${base}/canais`, Icon: ChannelsIcon },
-    { label: "QR Codes", href: `${base}/qr-codes`, Icon: QrIcon },
+    {
+      label: "Visão geral",
+      href: base,
+      exact: true,
+      Icon: OverviewIcon,
+      tour: "tab-overview",
+    },
+    {
+      label: "Canais",
+      href: `${base}/canais`,
+      Icon: ChannelsIcon,
+      tour: "tab-canais",
+    },
+    {
+      label: "QR Codes",
+      href: `${base}/qr-codes`,
+      Icon: QrIcon,
+      tour: "tab-qr",
+    },
     {
       label: "Compartilhamento",
       href: `${base}/compartilhamento`,
       Icon: ShareIcon,
+      tour: "tab-share",
     },
-    { label: "Segurança", href: `${base}/seguranca`, Icon: SecurityIcon },
+    {
+      label: "Segurança",
+      href: `${base}/seguranca`,
+      Icon: SecurityIcon,
+      tour: "tab-security",
+    },
     {
       label: "Configurações",
       href: `${base}/configuracoes`,
       Icon: SettingsIcon,
+      tour: "tab-settings",
     },
   ];
 
@@ -125,6 +148,7 @@ export function LinkTabs({ slug }: { slug: string }) {
           <Link
             key={t.href}
             href={t.href}
+            data-tour={t.tour}
             aria-current={active ? "page" : undefined}
             className={cn(
               "relative inline-flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[0.875rem] font-medium transition-colors sm:w-auto sm:gap-1.5 sm:whitespace-nowrap sm:rounded-none",

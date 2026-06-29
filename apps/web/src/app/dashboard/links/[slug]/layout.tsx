@@ -6,6 +6,7 @@ import { LinkActions } from "@/components/dashboard/link-actions";
 import { LinkTabs } from "@/components/dashboard/link-tabs";
 import { LiveIndicator } from "@/components/dashboard/live-indicator";
 import { RealtimeRefresher } from "@/components/dashboard/realtime-refresher";
+import { LinkDetailTour } from "@/components/onboarding/link-tours";
 import { systemDomain } from "@/lib/env";
 import { getLinkBySlug } from "@/server/links-query";
 import { requireSession } from "@/server/session";
@@ -39,13 +40,16 @@ export default async function LinkLayout({
       <RealtimeRefresher slug={link.slug} />
       {/* Shared header band, flush under the topbar. */}
       <div className="bg-paper px-6 pt-5 sm:px-8">
-        <Link
-          href="/dashboard/links"
-          className="inline-flex w-fit items-center gap-1.5 text-[0.82rem] font-medium text-muted transition-colors hover:text-ink"
-        >
-          <BackGlyph />
-          Todos os links
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link
+            href="/dashboard/links"
+            className="inline-flex w-fit items-center gap-1.5 text-[0.82rem] font-medium text-muted transition-colors hover:text-ink"
+          >
+            <BackGlyph />
+            Todos os links
+          </Link>
+          <LinkDetailTour />
+        </div>
 
         <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
           <div className="min-w-0">

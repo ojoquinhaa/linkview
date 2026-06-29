@@ -9,10 +9,12 @@ import {
   gte,
   isNotNull,
   isNull,
+  lt,
   type SQLWrapper,
   sql,
 } from "drizzle-orm";
 import { channelLabel, QR_CHANNEL_KEY } from "@/lib/channel-labels";
+import type { AnalyticsRange } from "./workspace-analytics";
 
 export interface LinkListItem {
   id: string;
@@ -166,15 +168,16 @@ const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const HOURS_WINDOW = 48;
 
-/** Click analytics for a single link over a trailing window (default 14 days). */
+/** Click analytics for a single link over the given window. */
 export async function getLinkAnalytics(
   linkId: string,
-  days = 14,
+  range: AnalyticsRange,
 ): Promise<LinkAnalytics> {
   const db = getDb();
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setTime(start.getTime() - (days - 1) * DAY_MS);
+  const { start, end, days } = range;
+  const link = eq(clicks.linkId, linkId);
+  const upTo = lt(clicks.occurredAt, end);
+  const inWindow = and(link, gte(clicks.occurredAt, start), upTo);
 
   // Hourly window: floor to the current hour, then step back 47 hours.
   const hourStart = new Date();
@@ -185,7 +188,7 @@ export async function getLinkAnalytics(
     db
       .select({ key: sql<string>`${col}`, total: count() })
       .from(clicks)
-      .where(and(eq(clicks.linkId, linkId), isNotNull(col)))
+      .where(and(link, gte(clicks.occurredAt, start), upTo, isNotNull(col)))
       .groupBy(sql`${col}`)
       .orderBy(desc(count()))
       .limit(5);
@@ -206,7 +209,7 @@ export async function getLinkAnalytics(
         unique: countDistinct(clicks.ipHash),
       })
       .from(clicks)
-      .where(and(eq(clicks.linkId, linkId), gte(clicks.occurredAt, start)))
+      .where(inWindow)
       .groupBy(sql`date_trunc('day', ${clicks.occurredAt})`),
     db
       .select({
@@ -223,7 +226,14 @@ export async function getLinkAnalytics(
     db
       .select({ key: sql<string>`${clicks.country}`, total: count() })
       .from(clicks)
-      .where(and(eq(clicks.linkId, linkId), isNotNull(clicks.country)))
+      .where(
+        and(
+          link,
+          gte(clicks.occurredAt, start),
+          upTo,
+          isNotNull(clicks.country),
+        ),
+      )
       .groupBy(clicks.country)
       .orderBy(desc(count())),
     db
@@ -231,7 +241,9 @@ export async function getLinkAnalytics(
       .from(clicks)
       .where(
         and(
-          eq(clicks.linkId, linkId),
+          link,
+          gte(clicks.occurredAt, start),
+          upTo,
           eq(clicks.country, "BR"),
           isNotNull(clicks.region),
         ),

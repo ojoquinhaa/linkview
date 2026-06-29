@@ -19,12 +19,17 @@ import { getActiveWorkspace } from "@/server/workspace";
 import {
   getWorkspaceChannelTrends,
   getWorkspaceOverview,
-  PERIODS,
+  rangeLabel,
+  resolveRange,
   type TopLink,
   type WorkspaceOverview,
 } from "@/server/workspace-analytics";
 
 const fmtNum = (n: number) => n.toLocaleString("pt-BR");
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const toISODay = (d: Date) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
 const DEVICE_LABELS: Record<string, string> = {
   mobile: "Celular",
@@ -53,7 +58,12 @@ const share = (n: number, of: number) =>
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ periodo?: string; canal?: string }>;
+  searchParams: Promise<{
+    periodo?: string;
+    de?: string;
+    ate?: string;
+    canal?: string;
+  }>;
 }) {
   const session = await requireSession();
   const workspace = await getActiveWorkspace(session.user.id);
@@ -61,17 +71,16 @@ export default async function DashboardPage({
 
   const canMetrics = can(workspace.role, "metrics.view");
   const sp = await searchParams;
-  const periodo = Number(sp.periodo);
-  const days = (PERIODS as readonly number[]).includes(periodo) ? periodo : 14;
+  const range = resolveRange(sp);
   const canal = sp.canal?.trim() || null;
   const domain = systemDomain();
 
   const overview = canMetrics
-    ? await getWorkspaceOverview(workspace.id, days, canal)
+    ? await getWorkspaceOverview(workspace.id, range, canal)
     : null;
   const channelTrends =
     canMetrics && overview && overview.kpis.totalLinks > 0
-      ? await getWorkspaceChannelTrends(workspace.id, days, canal)
+      ? await getWorkspaceChannelTrends(workspace.id, range, canal)
       : null;
 
   const canalLabel = canal
@@ -94,15 +103,21 @@ export default async function DashboardPage({
             {canMetrics && overview
               ? overview.kpis.totalLinks === 0
                 ? "Crie o primeiro link e a operação começa a aparecer aqui."
-                : describeScope(days, canalLabel)
+                : describeScope(rangeLabel(range), canalLabel)
               : "Resumo de cliques, canais e alcance dos seus links."}
           </p>
         </div>
 
         {canMetrics && overview && overview.kpis.totalLinks > 0 && (
           <OverviewFilters
-            periods={PERIODS}
-            days={days}
+            days={range.days}
+            custom={range.custom}
+            from={range.custom ? toISODay(range.start) : null}
+            to={
+              range.custom
+                ? toISODay(new Date(range.end.getTime() - 86_400_000))
+                : null
+            }
             channels={overview.channels}
             canal={canal}
           />
@@ -126,8 +141,7 @@ export default async function DashboardPage({
   );
 }
 
-function describeScope(days: number, canalLabel: string | null): string {
-  const period = `Últimos ${days} dias`;
+function describeScope(period: string, canalLabel: string | null): string {
   return canalLabel ? `${period} · canal ${canalLabel}` : period;
 }
 

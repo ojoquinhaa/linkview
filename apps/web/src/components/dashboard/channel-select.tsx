@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { Popover } from "@/components/ui/popover";
 import { QR_CHANNEL_KEY } from "@/lib/channel-labels";
 import { cn } from "@/lib/cn";
 import type { ChannelOption } from "@/server/workspace-analytics";
@@ -58,26 +59,8 @@ export function ChannelSelect({
   onChange: (key: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const listId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
 
   const selected = value ? channels.find((c) => c.key === value) : null;
   const allTotal = channels.reduce((sum, c) => sum + c.total, 0);
@@ -88,8 +71,9 @@ export function ChannelSelect({
   };
 
   return (
-    <div ref={rootRef} className="relative">
+    <div className="relative">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
@@ -121,30 +105,34 @@ export function ChannelSelect({
         </svg>
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-[calc(100%+0.4rem)] z-30 w-64 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_24px_60px_-20px_oklch(0.2_0.05_265/0.45)]">
-          <ul id={listId} className="max-h-[19rem] overflow-y-auto p-1">
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={btnRef}
+        width={256}
+        align="end"
+      >
+        <ul id={listId} className="max-h-[19rem] overflow-y-auto p-1">
+          <Row
+            mark={<OptionMark channelKey={null} />}
+            label="Todos os canais"
+            count={allTotal}
+            active={!value}
+            onClick={() => choose(null)}
+          />
+          <li aria-hidden="true" className="mx-2 my-1 border-t border-line" />
+          {channels.map((c) => (
             <Row
-              mark={<OptionMark channelKey={null} />}
-              label="Todos os canais"
-              count={allTotal}
-              active={!value}
-              onClick={() => choose(null)}
+              key={c.key}
+              mark={<OptionMark channelKey={c.key} />}
+              label={c.label}
+              count={c.total}
+              active={c.key === value}
+              onClick={() => choose(c.key)}
             />
-            <li aria-hidden="true" className="mx-2 my-1 border-t border-line" />
-            {channels.map((c) => (
-              <Row
-                key={c.key}
-                mark={<OptionMark channelKey={c.key} />}
-                label={c.label}
-                count={c.total}
-                active={c.key === value}
-                onClick={() => choose(c.key)}
-              />
-            ))}
-          </ul>
-        </div>
-      )}
+          ))}
+        </ul>
+      </Popover>
     </div>
   );
 }

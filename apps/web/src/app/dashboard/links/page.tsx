@@ -3,8 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CopyButton } from "@/components/dashboard/copy-button";
 import { LinkActions } from "@/components/dashboard/link-actions";
-import { LinksOnboarding } from "@/components/dashboard/links-onboarding";
 import { RealtimeRefresher } from "@/components/dashboard/realtime-refresher";
+import { LinksTour } from "@/components/onboarding/link-tours";
 import { systemDomain } from "@/lib/env";
 import type { LinkListItem } from "@/server/links-query";
 import { listLinks } from "@/server/links-query";
@@ -81,9 +81,10 @@ export default async function LinksPage({
         </div>
 
         <div className="flex shrink-0 items-center gap-4">
-          {!query && <LinksOnboarding />}
+          {!query && <LinksTour />}
           <Link
             href="/dashboard/links/new"
+            data-tour="links-create"
             className="inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-input)] bg-accent pr-4 pl-3.5 text-[0.88rem] font-medium text-accent-ink shadow-[0_1px_2px_oklch(0.42_0.16_265/0.35),0_2px_8px_oklch(0.42_0.16_265/0.2)] transition-colors hover:bg-accent-deep"
           >
             <svg
@@ -105,7 +106,7 @@ export default async function LinksPage({
       </div>
 
       {/* Content segment. */}
-      <div className="px-6 py-7 sm:px-8">
+      <div data-tour="links-content" className="px-6 py-7 sm:px-8">
         {links.length === 0 ? (
           query ? (
             <NoResults query={query} />

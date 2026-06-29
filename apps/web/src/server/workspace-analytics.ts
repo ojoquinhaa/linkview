@@ -25,6 +25,79 @@ const HOURS_WINDOW = 48;
 export const PERIODS = [7, 14, 30, 90] as const;
 export type Period = (typeof PERIODS)[number];
 
+const MAX_RANGE_DAYS = 366;
+
+export interface AnalyticsRange {
+  /** Inclusive window start (local midnight). */
+  start: Date;
+  /** Exclusive window end. */
+  end: Date;
+  /** Inclusive day count; drives the daily axis length. */
+  days: number;
+  /** True when the user picked explicit dates (vs a trailing preset). */
+  custom: boolean;
+}
+
+const startOfDay = (d: Date) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+/** Parse a `YYYY-MM-DD` string into a local-midnight Date, or null. */
+function parseDay(s: string | undefined): Date | null {
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : startOfDay(d);
+}
+
+/**
+ * Resolve the date filter from URL params. Explicit `de`/`ate` win (a specific
+ * period, or a single day when equal); otherwise a trailing `periodo` preset,
+ * defaulting to 14 days. The future is never selectable.
+ */
+export function resolveRange(sp: {
+  periodo?: string;
+  de?: string;
+  ate?: string;
+}): AnalyticsRange {
+  const de = parseDay(sp.de);
+  const ate = parseDay(sp.ate);
+  if (de && ate) {
+    const today = startOfDay(new Date());
+    const lo = de <= ate ? de : ate;
+    const hiRaw = de <= ate ? ate : de;
+    const hi = hiRaw > today ? today : hiRaw;
+    const start = lo > today ? today : lo;
+    const end = new Date(startOfDay(hi).getTime() + DAY_MS); // exclusive
+    const days = Math.min(
+      MAX_RANGE_DAYS,
+      Math.max(1, Math.round((end.getTime() - start.getTime()) / DAY_MS)),
+    );
+    return { start, end, days, custom: true };
+  }
+  const periodo = Number(sp.periodo);
+  const days = (PERIODS as readonly number[]).includes(periodo) ? periodo : 14;
+  const start = startOfDay(new Date());
+  start.setTime(start.getTime() - (days - 1) * DAY_MS);
+  return { start, end: new Date(), days, custom: false };
+}
+
+/** Human label for the active range, e.g. "Últimos 14 dias" or "3 – 9 de jun". */
+export function rangeLabel(range: AnalyticsRange): string {
+  if (!range.custom) return `Últimos ${range.days} dias`;
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "short",
+    }).format(d);
+  const last = new Date(range.end.getTime() - DAY_MS);
+  if (range.days === 1) return fmt(range.start);
+  return `${fmt(range.start)} – ${fmt(last)}`;
+}
+
 export interface ChannelOption {
   /** UTM source value, or {@link QR_CHANNEL_KEY} for QR scans. */
   key: string;
@@ -86,14 +159,12 @@ const num = (v: unknown) => Number(v ?? 0);
  */
 export async function getWorkspaceOverview(
   workspaceId: string,
-  days = 14,
+  range: AnalyticsRange,
   canal: string | null = null,
 ): Promise<WorkspaceOverview> {
   const db = getDb();
 
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setTime(start.getTime() - (days - 1) * DAY_MS);
+  const { start, end, days } = range;
   const prevStart = new Date(start.getTime() - days * DAY_MS);
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -103,13 +174,14 @@ export async function getWorkspaceOverview(
 
   const ws = eq(clicks.workspaceId, workspaceId);
   const sc = channelCond(canal);
-  const inWindow = and(ws, gte(clicks.occurredAt, start), sc);
+  const upTo = lt(clicks.occurredAt, end);
+  const inWindow = and(ws, gte(clicks.occurredAt, start), upTo, sc);
 
   const topBy = (col: typeof clicks.device | typeof clicks.source) =>
     db
       .select({ key: sql<string>`${col}`, total: count() })
       .from(clicks)
-      .where(and(ws, gte(clicks.occurredAt, start), isNotNull(col), sc))
+      .where(and(ws, gte(clicks.occurredAt, start), upTo, isNotNull(col), sc))
       .groupBy(sql`${col}`)
       .orderBy(desc(count()))
       .limit(6);
@@ -184,7 +256,13 @@ export async function getWorkspaceOverview(
       .select({ key: sql<string>`${clicks.country}`, total: count() })
       .from(clicks)
       .where(
-        and(ws, gte(clicks.occurredAt, start), isNotNull(clicks.country), sc),
+        and(
+          ws,
+          gte(clicks.occurredAt, start),
+          upTo,
+          isNotNull(clicks.country),
+          sc,
+        ),
       )
       .groupBy(clicks.country)
       .orderBy(desc(count())),
@@ -195,6 +273,7 @@ export async function getWorkspaceOverview(
         and(
           ws,
           gte(clicks.occurredAt, start),
+          upTo,
           eq(clicks.country, "BR"),
           isNotNull(clicks.region),
           sc,
@@ -206,7 +285,12 @@ export async function getWorkspaceOverview(
       .select({ total: count() })
       .from(clicks)
       .where(
-        and(ws, gte(clicks.occurredAt, start), isNotNull(clicks.qrCodeId)),
+        and(
+          ws,
+          gte(clicks.occurredAt, start),
+          upTo,
+          isNotNull(clicks.qrCodeId),
+        ),
       ),
     db
       .select({
@@ -343,19 +427,18 @@ const MAX_CHANNEL_SERIES = 5;
  */
 export async function getWorkspaceChannelTrends(
   workspaceId: string,
-  days = 14,
+  range: AnalyticsRange,
   canal: string | null = null,
 ): Promise<ChannelTrends> {
   const db = getDb();
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setTime(start.getTime() - (days - 1) * DAY_MS);
+  const { start, end, days } = range;
   const hourStart = new Date();
   hourStart.setMinutes(0, 0, 0);
   hourStart.setTime(hourStart.getTime() - (HOURS_WINDOW - 1) * HOUR_MS);
 
   const ws = eq(clicks.workspaceId, workspaceId);
   const sc = channelCond(canal);
+  const upTo = lt(clicks.occurredAt, end);
   // Fresh sql each call: a drizzle `sql` fragment is consumed when a query is
   // built, so reusing one instance across queries corrupts the later ones.
   const dayExpr = () =>
@@ -368,7 +451,13 @@ export async function getWorkspaceChannelTrends(
       .select({ key: clicks.source, day: dayExpr(), total: count() })
       .from(clicks)
       .where(
-        and(ws, gte(clicks.occurredAt, start), isNotNull(clicks.source), sc),
+        and(
+          ws,
+          gte(clicks.occurredAt, start),
+          upTo,
+          isNotNull(clicks.source),
+          sc,
+        ),
       )
       .groupBy(clicks.source, sql`date_trunc('day', ${clicks.occurredAt})`),
     db
@@ -389,7 +478,14 @@ export async function getWorkspaceChannelTrends(
     db
       .select({ day: dayExpr(), total: count() })
       .from(clicks)
-      .where(and(ws, gte(clicks.occurredAt, start), isNotNull(clicks.qrCodeId)))
+      .where(
+        and(
+          ws,
+          gte(clicks.occurredAt, start),
+          upTo,
+          isNotNull(clicks.qrCodeId),
+        ),
+      )
       .groupBy(sql`date_trunc('day', ${clicks.occurredAt})`),
     db
       .select({ hour: hourExpr(), total: count() })
