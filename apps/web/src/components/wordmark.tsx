@@ -1,8 +1,8 @@
 import { cn } from "@/lib/cn";
 
 const sizes = {
-  sm: "text-[0.95rem]",
-  md: "text-lg",
+  sm: "text-[1.05rem]",
+  md: "text-xl",
   lg: "text-2xl",
   xl: "text-[2.6rem] leading-none",
 } as const;
@@ -30,7 +30,7 @@ export function Wordmark({
         src="/logo.png"
         alt=""
         aria-hidden
-        className="mr-[0.42em] h-[0.92em] w-auto"
+        className="mr-[0.34em] h-[0.62em] w-auto"
       />
       linkview
     </span>
