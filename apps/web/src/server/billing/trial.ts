@@ -7,7 +7,7 @@ import {
   userProfiles,
   workspaces,
 } from "@linkview/db";
-import { TRIAL_DURATION_DAYS } from "@linkview/shared";
+import { normalizeEmail, TRIAL_DURATION_DAYS } from "@linkview/shared";
 import { and, eq, or } from "drizzle-orm";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
@@ -16,24 +16,49 @@ import { getActiveWorkspace } from "@/server/workspace";
 const TRIAL_PLAN_KEY = "trial";
 
 /**
- * Has the given person (by document, e-mail, or sign-up IP) ever redeemed a
- * trial? Any match blocks a new one — the trial is once per person, not once
- * per account, so a second sign-up with the same CPF / e-mail / IP is denied.
+ * Strong-signal abuse check: has this document (CPF/CNPJ) or e-mail redeemed a
+ * trial before? Either one matching blocks a new trial on its own — these are
+ * high-confidence identity keys, so a single hit is enough. E-mail is compared
+ * in its normalized form (gmail dots / `+tag` collapsed) to defeat aliasing.
  */
-async function findPriorRedemption(
+async function findHardRedemption(
   db: ReturnType<typeof getDb>,
-  keys: { document: string; email: string; ip: string | null },
+  keys: { document: string; email: string },
 ) {
-  const matches = [
-    eq(trialRedemptions.document, keys.document),
-    eq(trialRedemptions.email, keys.email),
-  ];
-  if (keys.ip) matches.push(eq(trialRedemptions.ip, keys.ip));
-
   const [row] = await db
     .select({ id: trialRedemptions.id })
     .from(trialRedemptions)
-    .where(or(...matches))
+    .where(
+      or(
+        eq(trialRedemptions.document, keys.document),
+        eq(trialRedemptions.email, keys.email),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Weak-signal abuse check: blocks only when the device fingerprint AND the IP
+ * *both* match the same prior redemption. Either one alone is too noisy to deny
+ * a trial — IP collides across NAT/CGNAT/shared Wi-Fi, and a fingerprint resets
+ * in incognito — so we require the two to agree before treating it as the same
+ * person evading the strong keys. Returns null if either signal is missing.
+ */
+async function findSoftRedemption(
+  db: ReturnType<typeof getDb>,
+  keys: { fingerprint: string | null; ip: string | null },
+) {
+  if (!keys.fingerprint || !keys.ip) return null;
+  const [row] = await db
+    .select({ id: trialRedemptions.id })
+    .from(trialRedemptions)
+    .where(
+      and(
+        eq(trialRedemptions.fingerprint, keys.fingerprint),
+        eq(trialRedemptions.ip, keys.ip),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -45,8 +70,11 @@ export interface TrialEligibility {
 }
 
 /**
- * Whether the signed-in user's workspace can start a trial right now. The CTA
- * on /assinar uses this to decide whether to offer the trial.
+ * Whether the signed-in user's workspace can start a trial right now. Drives the
+ * /assinar CTA. Only the *strong* keys (document, e-mail) gate visibility here —
+ * the weak fingerprint+IP signal isn't available server-side at page load and
+ * is enforced authoritatively in `startTrial`. (This is why a shared IP no
+ * longer hides the card from a legitimate new customer.)
  */
 export async function getTrialEligibility(
   userId: string,
@@ -59,19 +87,15 @@ export async function getTrialEligibility(
 
   const db = getDb();
   const [profile] = await db
-    .select({
-      document: userProfiles.document,
-      signupIp: userProfiles.signupIp,
-    })
+    .select({ document: userProfiles.document })
     .from(userProfiles)
     .where(eq(userProfiles.userId, userId))
     .limit(1);
   if (!profile) return { eligible: false, reason: "no_profile" };
 
-  const prior = await findPriorRedemption(db, {
+  const prior = await findHardRedemption(db, {
     document: profile.document,
-    email: email.toLowerCase(),
-    ip: profile.signupIp,
+    email: normalizeEmail(email),
   });
   if (prior) return { eligible: false, reason: "already_redeemed" };
 
@@ -90,11 +114,14 @@ export interface StartTrialResult {
  * subscription is recorded, and a redemption ledger row is written — all in a
  * single batch (Neon HTTP batch = one transaction).
  */
-export async function startTrial(): Promise<StartTrialResult> {
+export async function startTrial(
+  fingerprint?: string,
+): Promise<StartTrialResult> {
   try {
     const session = await requireSession();
     const userId = session.user.id;
-    const email = session.user.email.toLowerCase();
+    const email = normalizeEmail(session.user.email);
+    const fp = fingerprint?.trim() || null;
 
     const workspace = await getActiveWorkspace(userId);
     if (!workspace)
@@ -144,16 +171,26 @@ export async function startTrial(): Promise<StartTrialResult> {
       };
     }
 
-    const prior = await findPriorRedemption(db, {
+    // Strong keys first: a document or e-mail reuse is high-confidence abuse.
+    const hard = await findHardRedemption(db, {
       document: profile.document,
       email,
-      ip: profile.signupIp,
     });
-    if (prior) {
+    if (hard) {
       return {
         ok: false,
-        error:
-          "Este CPF/CNPJ, e-mail ou dispositivo já utilizou o teste grátis.",
+        error: "Este CPF/CNPJ ou e-mail já utilizou o teste grátis.",
+      };
+    }
+    // Weak keys: deny only when fingerprint AND IP both match a prior trial.
+    const soft = await findSoftRedemption(db, {
+      fingerprint: fp,
+      ip: profile.signupIp,
+    });
+    if (soft) {
+      return {
+        ok: false,
+        error: "Este dispositivo já utilizou o teste grátis.",
       };
     }
 
@@ -198,6 +235,7 @@ export async function startTrial(): Promise<StartTrialResult> {
         document: profile.document,
         email,
         ip: profile.signupIp,
+        fingerprint: fp,
         startedAt: now,
         endsAt,
       }),

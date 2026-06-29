@@ -8,8 +8,8 @@ const sizes = {
 } as const;
 
 /**
- * Brand wordmark. The trailing accent mark nods to a URL cursor / domain dot,
- * the product's recurring motif.
+ * Brand lockup: the eye-in-chain mark leading the "linkview" wordmark. The mark
+ * scales in `em` so it tracks the type size at every breakpoint.
  */
 export function Wordmark({
   size = "md",
@@ -21,19 +21,18 @@ export function Wordmark({
   return (
     <span
       className={cn(
-        "inline-flex items-end font-display font-semibold tracking-[-0.02em] text-ink select-none",
+        "inline-flex items-center font-display font-semibold tracking-[-0.02em] text-ink select-none",
         sizes[size],
         className,
       )}
     >
-      linkview
-      <span
+      <img
+        src="/logo.png"
+        alt=""
         aria-hidden
-        className={cn(
-          "ml-[0.12em] mb-[0.16em] inline-block rounded-[2px] bg-accent",
-          size === "xl" ? "size-2" : "size-1.5",
-        )}
+        className="mr-[0.42em] h-[0.92em] w-auto"
       />
+      linkview
     </span>
   );
 }

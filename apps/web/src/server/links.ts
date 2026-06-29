@@ -13,6 +13,7 @@ import {
   normalizeSlug,
   type PlanKey,
   resolveSplash,
+  type SlugValidationError,
   type SplashConfig,
   type UpdateLinkInput,
   updateLinkSchema,
@@ -23,10 +24,11 @@ import { revalidatePath } from "next/cache";
 import { removeLinkFromKv } from "@/lib/kv";
 import { syncLinkTracked } from "@/lib/link-sync";
 import { hashPassword } from "@/lib/password";
+import { rateLimit } from "@/lib/rate-limit";
 import { logAudit } from "./audit";
 import { LOCKED_WRITE_MESSAGE, workspaceCanWrite } from "./billing/guard";
 import { getSystemDomain } from "./domain";
-import { requireSession } from "./session";
+import { getSession, requireSession } from "./session";
 import { getActiveWorkspace } from "./workspace";
 
 export interface CreateLinkResult {
@@ -41,6 +43,16 @@ interface KvSecurity {
   allowedCountries?: string[] | null;
   blockedCountries?: string[] | null;
   rateLimitPerMinute?: number | null;
+}
+
+/** Postgres unique-violation (SQLSTATE 23505) raised when a slug collides. */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "23505"
+  );
 }
 
 /** Build the operational KV record (§16.1) from authoritative Postgres state. */
@@ -159,6 +171,64 @@ async function resolveSlug(
   return { error: "Não foi possível gerar um slug único." };
 }
 
+/** Outcome of a pre-creation slug check (see `checkSlugAvailabilityAction`). */
+export type SlugAvailability =
+  | { status: "available"; slug: string }
+  | { status: "taken"; slug: string }
+  | { status: "invalid"; reason: SlugValidationError }
+  | { status: "rate_limited" }
+  | { status: "unauthorized" };
+
+/**
+ * Tell an authenticated author whether a custom slug is free *before* they
+ * submit the create form — purely advisory UX; the real duplicate guard is the
+ * `unique(domainId, slug)` constraint enforced at insert time, so a slug that
+ * passes here can still lose a race and that's fine.
+ *
+ * Built to NOT become a link-enumeration oracle:
+ *  - Auth-gated to a member who can already create links (an anonymous wordlist
+ *    scan is rejected outright). The shared system domain's namespace is already
+ *    probeable by hitting `domain/slug` against the public redirect Worker, so
+ *    this adds no leak beyond mere existence.
+ *  - Per-user rate limited to blunt high-throughput scraping.
+ *  - Format is validated before any DB read (garbage never reaches Postgres).
+ *  - Response is existence-only: never the destination, owner, workspace, or any
+ *    other link field.
+ */
+export async function checkSlugAvailabilityAction(
+  raw: string,
+): Promise<SlugAvailability> {
+  // Only a member who could create the link may probe its slug.
+  const session = await getSession();
+  if (!session) return { status: "unauthorized" };
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace || !can(workspace.role, "link.create")) {
+    return { status: "unauthorized" };
+  }
+
+  // Blunt enumeration: 20 checks / 10s per user. Fail-open (Redis optional).
+  if (!(await rateLimit(`slug-check:${session.user.id}`, 20, 10))) {
+    return { status: "rate_limited" };
+  }
+
+  // Validate the normalized form before touching the DB — no oracle on garbage,
+  // and the caller learns the exact slug that would be used.
+  const slug = normalizeSlug(raw);
+  const reason = validateSlug(slug);
+  if (reason) return { status: "invalid", reason };
+
+  // Existence only, scoped to the system domain's namespace.
+  const domain = await getSystemDomain();
+  const db = getDb();
+  const [row] = await db
+    .select({ id: links.id })
+    .from(links)
+    .where(and(eq(links.domainId, domain.id), eq(links.slug, slug)))
+    .limit(1);
+
+  return row ? { status: "taken", slug } : { status: "available", slug };
+}
+
 export async function createLinkAction(
   input: CreateLinkInput,
 ): Promise<CreateLinkResult> {
@@ -223,27 +293,39 @@ export async function createLinkAction(
 
   const passwordHash = data.password ? hashPassword(data.password) : null;
 
-  const [created] = await db
-    .insert(links)
-    .values({
-      workspaceId: workspace.id,
-      createdByUserId: session.user.id,
-      domainId: domain.id,
-      campaignId: data.campaignId,
-      slug,
-      destinationUrl,
-      title: data.title,
-      description: data.description,
-      expiresAt: data.expiresAt,
-      passwordHash,
-      utmSource: data.utmSource,
-      utmMedium: data.utmMedium,
-      utmCampaign: data.utmCampaign,
-      utmTerm: data.utmTerm,
-      utmContent: data.utmContent,
-      tags: data.tags,
-    })
-    .returning({ id: links.id, slug: links.slug });
+  let created: { id: string; slug: string } | undefined;
+  try {
+    [created] = await db
+      .insert(links)
+      .values({
+        workspaceId: workspace.id,
+        createdByUserId: session.user.id,
+        domainId: domain.id,
+        campaignId: data.campaignId,
+        slug,
+        destinationUrl,
+        title: data.title,
+        description: data.description,
+        expiresAt: data.expiresAt,
+        passwordHash,
+        utmSource: data.utmSource,
+        utmMedium: data.utmMedium,
+        utmCampaign: data.utmCampaign,
+        utmTerm: data.utmTerm,
+        utmContent: data.utmContent,
+        tags: data.tags,
+      })
+      .returning({ id: links.id, slug: links.slug });
+  } catch (err) {
+    // Authoritative duplicate guard: the advisory pre-check (or a concurrent
+    // request) can lose the race, so the unique(domainId, slug) constraint is
+    // the real arbiter. Turn its violation into a friendly message; rethrow
+    // anything else so genuine failures still surface.
+    if (isUniqueViolation(err)) {
+      return { ok: false, error: "Slug já está em uso." };
+    }
+    throw err;
+  }
 
   if (!created) return { ok: false, error: "Falha ao criar link." };
 

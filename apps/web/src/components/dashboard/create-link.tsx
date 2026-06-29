@@ -1,12 +1,22 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useState, useTransition } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useState,
+  useTransition,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { cn } from "@/lib/cn";
 import { dialCode } from "@/lib/countries";
-import { createLinkAction } from "@/server/links";
+import {
+  checkSlugAvailabilityAction,
+  createLinkAction,
+  type SlugAvailability,
+} from "@/server/links";
 import { CopyButton } from "./copy-button";
 import { PhoneCountrySelect } from "./phone-country-select";
 import { QrButton } from "./qr-button";
@@ -81,6 +91,30 @@ export function CreateLink({ domain }: { domain: string }) {
     slug: string;
   } | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Live, advisory slug availability (debounced). Authoritative duplicate check
+  // still happens server-side at insert time.
+  const [slugCheck, setSlugCheck] = useState<
+    "idle" | "checking" | SlugAvailability
+  >("idle");
+
+  useEffect(() => {
+    const value = slug.trim();
+    if (!value) {
+      setSlugCheck("idle");
+      return;
+    }
+    setSlugCheck("checking");
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      const res = await checkSlugAvailabilityAction(value);
+      if (!cancelled) setSlugCheck(res); // drop result if the user kept typing
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [slug]);
 
   const destination = buildDestination();
   const ready = isReady();
@@ -419,13 +453,16 @@ export function CreateLink({ domain }: { domain: string }) {
               hint="Deixe vazio para gerar automático."
             >
               {({ id }) => (
-                <Input
-                  id={id}
-                  prefix={`${domain}/`}
-                  placeholder="promo-junho"
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value)}
-                />
+                <>
+                  <Input
+                    id={id}
+                    prefix={`${domain}/`}
+                    placeholder="promo-junho"
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value)}
+                  />
+                  <SlugStatus check={slugCheck} />
+                </>
               )}
             </Field>
             <Field label="Título (opcional)">
@@ -554,6 +591,55 @@ function Segmented({
         );
       })}
     </div>
+  );
+}
+
+const SLUG_INVALID_REASON: Record<string, string> = {
+  too_short: "Curto demais.",
+  too_long: "Longo demais.",
+  invalid_chars: "Use só letras, números, hífen e sublinhado.",
+  reserved: "Esse nome é reservado.",
+};
+
+/** Inline, advisory availability feedback for the custom-slug field. */
+function SlugStatus({
+  check,
+}: {
+  check: "idle" | "checking" | SlugAvailability;
+}) {
+  if (check === "idle") return null;
+
+  let tone: "muted" | "ok" | "bad" = "muted";
+  let text = "";
+  if (check === "checking") {
+    text = "Verificando disponibilidade…";
+  } else if (check.status === "available") {
+    tone = "ok";
+    text = `“${check.slug}” está disponível.`;
+  } else if (check.status === "taken") {
+    tone = "bad";
+    text = `“${check.slug}” já está em uso.`;
+  } else if (check.status === "invalid") {
+    tone = "bad";
+    text = SLUG_INVALID_REASON[check.reason] ?? "Slug inválido.";
+  } else if (check.status === "rate_limited") {
+    text = "Muitas verificações. Aguarde um instante.";
+  } else {
+    // unauthorized — session lapsed; stay quiet, the submit will surface it.
+    return null;
+  }
+
+  return (
+    <p
+      className={cn(
+        "mt-1.5 text-[0.8rem]",
+        tone === "ok" && "text-ok",
+        tone === "bad" && "text-danger",
+        tone === "muted" && "text-muted",
+      )}
+    >
+      {text}
+    </p>
   );
 }
 

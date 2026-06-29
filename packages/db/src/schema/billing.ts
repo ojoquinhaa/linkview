@@ -8,8 +8,12 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+import {
+  billingCycleEnum,
+  subscriptionStatusEnum,
+  timestamps,
+} from "./_shared";
 import { workspaces } from "./workspaces";
-import { billingCycleEnum, subscriptionStatusEnum, timestamps } from "./_shared";
 
 export const plans = pgTable("plans", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -53,7 +57,9 @@ export const subscriptions = pgTable(
     status: subscriptionStatusEnum("status").notNull().default("pending"),
     /** Cadence the workspace pays on. Drives the renewal date the webhook
      * stamps (monthly = +1 month, yearly = +1 year) and the price shown. */
-    billingCycle: billingCycleEnum("billing_cycle").notNull().default("monthly"),
+    billingCycle: billingCycleEnum("billing_cycle")
+      .notNull()
+      .default("monthly"),
     currentPeriodStart: timestamp("current_period_start", {
       withTimezone: true,
     }),
@@ -100,9 +106,11 @@ export const billingCustomers = pgTable(
 
 /**
  * Trial redemption ledger. One row per granted 7-day trial, keyed by the
- * identifiers that gate abuse: the fiscal `document` (CPF/CNPJ), `email`, and
- * sign-up `ip`. A new trial is denied if any of those already appears here, so
- * the same person cannot farm repeated trials. `convertedAt` is stamped when
+ * identifiers that gate abuse, in two tiers: strong keys — the fiscal
+ * `document` (CPF/CNPJ) and `email` — deny a new trial if either matches alone;
+ * weak keys — `fingerprint` and `ip` — deny only when *both* match the same
+ * prior row (a single shared IP or reset fingerprint is too noisy to block a
+ * legitimate new customer). `convertedAt` is stamped when
  * the workspace starts a paid subscription (exempts it from retention purge);
  * `purgedAt` is stamped when the workspace is soft-deleted after the retention
  * window elapses without conversion.
@@ -120,6 +128,10 @@ export const trialRedemptions = pgTable(
     email: text("email").notNull(),
     /** IP captured at sign-up, one of the abuse-gate keys. */
     ip: text("ip"),
+    /** Device fingerprint hash captured when the trial is redeemed. A weak
+     * signal: only blocks a new trial when it AND the IP both match a prior
+     * redemption (two weak signals agreeing), never on its own. */
+    fingerprint: text("fingerprint"),
     startedAt: timestamp("started_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -134,6 +146,7 @@ export const trialRedemptions = pgTable(
     index("trial_redemptions_document_idx").on(t.document),
     index("trial_redemptions_email_idx").on(t.email),
     index("trial_redemptions_ip_idx").on(t.ip),
+    index("trial_redemptions_fingerprint_idx").on(t.fingerprint),
     index("trial_redemptions_workspace_idx").on(t.workspaceId),
   ],
 );

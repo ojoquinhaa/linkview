@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { computeFingerprint } from "@/lib/fingerprint";
 import { startTrialAction } from "@/server/billing/actions";
 
 const brl = (cents: number) =>
@@ -258,7 +259,8 @@ function TrialCard({ days }: { days: number }) {
     setError(null);
     setLoading(true);
     try {
-      const res = await startTrialAction();
+      const fingerprint = await computeFingerprint();
+      const res = await startTrialAction(fingerprint ?? undefined);
       if (!res.ok) {
         setError(res.error ?? "Não foi possível iniciar o teste.");
         setLoading(false);

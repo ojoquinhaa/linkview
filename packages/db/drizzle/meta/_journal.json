@@ -71,6 +71,13 @@
       "when": 1782670723086,
       "tag": "0009_silky_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782765427634,
+      "tag": "0010_trial_fingerprint",
+      "breakpoints": true
     }
   ]
 }

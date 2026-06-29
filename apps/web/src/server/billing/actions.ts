@@ -278,9 +278,15 @@ export async function updateCardAction(
   }
 }
 
-/** Start the 7-day Pro trial for the signed-in user's workspace. */
-export async function startTrialAction(): Promise<StartTrialResult> {
-  return startTrial();
+/**
+ * Start the 7-day Pro trial for the signed-in user's workspace. `fingerprint`
+ * is a client-computed device hash used only as a weak abuse signal (paired
+ * with IP); it's advisory and the action works without it.
+ */
+export async function startTrialAction(
+  fingerprint?: string,
+): Promise<StartTrialResult> {
+  return startTrial(fingerprint);
 }
 
 export interface ActivationResult {

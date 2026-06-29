@@ -1,6 +1,6 @@
 ---
-// linkview wordmark: name in Bricolage + the accent "domain cursor" square,
-// the same mark used in the app (apps/web components/wordmark).
+// linkview brand lockup: the eye-in-chain mark leading the Bricolage wordmark,
+// the same lockup used in the app (apps/web components/wordmark).
 interface Props {
   class?: string;
 }
@@ -8,9 +8,8 @@ const { class: className = "" } = Astro.props;
 ---
 
 <span
-  class={`inline-flex items-baseline gap-[0.3ch] font-display text-[1.35rem] font-semibold tracking-tight text-ink ${className}`}
+  class={`inline-flex items-center font-display text-[1.35rem] font-semibold tracking-tight text-ink ${className}`}
 >
-  linkview<span
-    class="inline-block h-[0.42em] w-[0.42em] translate-y-[-0.02em] rounded-[2px] bg-accent"
-    aria-hidden="true"></span>
+  <img src="/logo.png" alt="" aria-hidden="true" class="mr-[0.42em] h-[0.92em] w-auto" />
+  linkview
 </span>
