@@ -1,7 +1,12 @@
 import "server-only";
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  // `.trim()` strips a trailing newline/space pasted into the env var on the
+  // host. For R2 this is load-bearing: a stray `\r\n` on R2_BUCKET or
+  // R2_ACCESS_KEY_ID gets signed into the presigned URL (as `%0D%0A`),
+  // corrupting both the object path and the AWS credential scope, so every
+  // upload fails with a 400 (surfacing in the browser as a missing CORS header).
+  const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing env var: ${name}`);
   return value;
 }
