@@ -114,7 +114,7 @@ export default async function LinksPage({
             <EmptyState domain={domain} />
           )
         ) : (
-          <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {links.map((item) => (
               <LinkCard
                 key={item.id}
