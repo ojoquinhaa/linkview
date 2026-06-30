@@ -13,6 +13,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import {
   emailConfigured,
   sendCardChargeFailedEmail,
+  sendInvoiceReadyEmail,
   sendPaymentOverdueEmail,
 } from "@/lib/email";
 import { lockWorkspaceLinks, unlockWorkspaceLinks } from "@/lib/kv";
@@ -48,6 +49,8 @@ interface AsaasPayload {
     billingType?: string;
     /** Paid-receipt URL, present once the charge settles. */
     transactionReceiptUrl?: string;
+    /** PENDING | RECEIVED | CONFIRMED | OVERDUE | … */
+    status?: string;
   };
   subscription?: {
     id: string;
@@ -110,6 +113,7 @@ async function resolveSubscription(
         id: subscriptions.id,
         workspaceId: subscriptions.workspaceId,
         planId: subscriptions.planId,
+        status: subscriptions.status,
         billingCycle: subscriptions.billingCycle,
         cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
         currentPeriodStart: subscriptions.currentPeriodStart,
@@ -126,6 +130,7 @@ async function resolveSubscription(
         id: subscriptions.id,
         workspaceId: subscriptions.workspaceId,
         planId: subscriptions.planId,
+        status: subscriptions.status,
         billingCycle: subscriptions.billingCycle,
         cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
         currentPeriodStart: subscriptions.currentPeriodStart,
@@ -282,6 +287,40 @@ export async function POST(request: Request) {
           payload.payment?.invoiceUrl ??
           `${appUrl()}/dashboard/pagamentos`,
       });
+    } else if (event === "PAYMENT_CREATED") {
+      // A new charge was generated. For a *manual* (Pix/boleto) renewal on an
+      // already-active subscription, email the customer that their invoice is
+      // ready to pay in-app. Skip card charges (auto-captured, no action needed)
+      // and the initial checkout charge (subscription still `pending` — the
+      // buyer is already on the QR screen). Best-effort: a failed send must not
+      // fail the webhook.
+      const method = payload.payment?.billingType;
+      const manual = method === "PIX" || method === "BOLETO";
+      if (manual && sub.status === "active" && emailConfigured()) {
+        try {
+          const [customer] = await db
+            .select({
+              email: billingCustomers.email,
+              name: billingCustomers.name,
+            })
+            .from(billingCustomers)
+            .where(eq(billingCustomers.workspaceId, sub.workspaceId))
+            .limit(1);
+          if (customer?.email) {
+            await sendInvoiceReadyEmail({
+              to: customer.email,
+              name: customer.name,
+              amountCents: Math.round((payload.payment?.value ?? 0) * 100),
+              dueDate: payload.payment?.dueDate
+                ? new Date(payload.payment.dueDate)
+                : null,
+              payUrl: `${appUrl()}/dashboard/pagamentos`,
+            });
+          }
+        } catch (err) {
+          console.error("billing.invoice_ready_email_failed", err);
+        }
+      }
     } else if (event === "PAYMENT_OVERDUE") {
       await db
         .update(subscriptions)

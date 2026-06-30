@@ -5,8 +5,11 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { Wordmark } from "@/components/wordmark";
 import { cn } from "@/lib/cn";
+import {
+  type BillingAlertKind,
+  BillingAlertBanner,
+} from "./billing-alert-banner";
 import { LockedBanner } from "./locked-banner";
-import { PastDueBanner } from "./past-due-banner";
 import { NavLinks, SupportLink, WorkspaceFooter } from "./sidebar";
 import { TopBar } from "./topbar";
 import { TrialBanner } from "./trial-banner";
@@ -18,7 +21,7 @@ export function DashboardShell({
   roleLabel,
   isAdmin,
   trialDaysLeft,
-  pastDueDaysLeft,
+  billingAlert,
   locked,
   children,
 }: {
@@ -29,8 +32,12 @@ export function DashboardShell({
   isAdmin?: boolean;
   /** Days left on the free trial, or null when not trialing. */
   trialDaysLeft?: number | null;
-  /** Days left in the past-due tolerance window, or null when not past due. */
-  pastDueDaysLeft?: number | null;
+  /** Actionable billing notice (open Pix invoice, overdue, card failed), or null. */
+  billingAlert?: {
+    kind: BillingAlertKind;
+    dueLabel: string | null;
+    daysLeft: number | null;
+  } | null;
   /** Billing lapsed: dashboard is read-only and links are dark until reactivated. */
   locked?: boolean;
   children: React.ReactNode;
@@ -86,8 +93,12 @@ export function DashboardShell({
         />
         {locked && <LockedBanner />}
         {trialDaysLeft != null && <TrialBanner daysLeft={trialDaysLeft} />}
-        {pastDueDaysLeft != null && (
-          <PastDueBanner daysLeft={pastDueDaysLeft} />
+        {billingAlert && (
+          <BillingAlertBanner
+            kind={billingAlert.kind}
+            dueLabel={billingAlert.dueLabel}
+            daysLeft={billingAlert.daysLeft}
+          />
         )}
         <main className="min-w-0 flex-1">{children}</main>
       </div>

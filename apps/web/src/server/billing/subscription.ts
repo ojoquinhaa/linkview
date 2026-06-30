@@ -565,6 +565,122 @@ export async function changeCard(
   };
 }
 
+/**
+ * Move an active *card* subscription to manual Pix, effective the next renewal.
+ * Nothing is charged now: the current paid period is kept and Asaas switches the
+ * open future-dated charge to Pix (updatePendingPayments). We drop the card on
+ * file and clear autopay, so the renewal generates a Pix charge — the webhook
+ * (PAYMENT_CREATED) then emails the invoice and the customer pays in-app.
+ */
+export async function switchToPixBilling(workspaceId: string): Promise<void> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: subscriptions.id,
+      status: subscriptions.status,
+      autopay: subscriptions.autopay,
+      providerSubscriptionId: subscriptions.providerSubscriptionId,
+    })
+    .from(subscriptions)
+    .where(eq(subscriptions.workspaceId, workspaceId))
+    .limit(1);
+  if (!row?.providerSubscriptionId) {
+    throw new Error("Nenhuma assinatura ativa para alterar.");
+  }
+  if (row.status !== "active") {
+    throw new Error(
+      "Só é possível trocar a forma de pagamento de uma assinatura ativa.",
+    );
+  }
+  if (!row.autopay) return; // already manual/Pix — nothing to change
+
+  await asaas.updateSubscriptionMethod(row.providerSubscriptionId, {
+    billingType: "PIX",
+  });
+
+  await db
+    .update(subscriptions)
+    .set({
+      autopay: false,
+      cardToken: null,
+      cardLast4: null,
+      cardBrand: null,
+    })
+    .where(eq(subscriptions.id, row.id));
+}
+
+/**
+ * Move an active *Pix* subscription to card autopay, effective the next renewal.
+ * The card is tokenized now (PAN never stored) and attached to the Asaas
+ * subscription; nothing is charged today because the current period is already
+ * paid and the next charge is future-dated. From the next renewal on, Asaas
+ * auto-charges the card. A declined/invalid card surfaces as a thrown error from
+ * the Asaas tokenization call.
+ */
+export async function switchToCardBilling(
+  workspaceId: string,
+  input: CardCheckoutInput,
+  card: asaas.AsaasCard,
+  remoteIp: string,
+): Promise<{ last4: string; brand: string }> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: subscriptions.id,
+      status: subscriptions.status,
+      providerSubscriptionId: subscriptions.providerSubscriptionId,
+    })
+    .from(subscriptions)
+    .where(eq(subscriptions.workspaceId, workspaceId))
+    .limit(1);
+  if (!row?.providerSubscriptionId) {
+    throw new Error("Nenhuma assinatura ativa para alterar.");
+  }
+  if (row.status !== "active") {
+    throw new Error(
+      "Só é possível trocar a forma de pagamento de uma assinatura ativa.",
+    );
+  }
+
+  const [customer] = await db
+    .select({ providerCustomerId: billingCustomers.providerCustomerId })
+    .from(billingCustomers)
+    .where(eq(billingCustomers.workspaceId, workspaceId))
+    .limit(1);
+  if (!customer?.providerCustomerId) {
+    throw new Error("Cadastro de cobrança não encontrado.");
+  }
+
+  // PAN/CCV reach Asaas only here; we keep just the token + display metadata.
+  const tokenized = await asaas.tokenizeCard({
+    customer: customer.providerCustomerId,
+    creditCard: card,
+    creditCardHolderInfo: holderInfo(input),
+    remoteIp,
+  });
+
+  await asaas.updateSubscriptionMethod(row.providerSubscriptionId, {
+    billingType: "CREDIT_CARD",
+    creditCardToken: tokenized.creditCardToken,
+    remoteIp,
+  });
+
+  await db
+    .update(subscriptions)
+    .set({
+      autopay: true,
+      cardToken: tokenized.creditCardToken,
+      cardLast4: tokenized.creditCardNumber,
+      cardBrand: tokenized.creditCardBrand,
+    })
+    .where(eq(subscriptions.id, row.id));
+
+  return {
+    last4: tokenized.creditCardNumber,
+    brand: tokenized.creditCardBrand,
+  };
+}
+
 export interface WorkspaceSubscription {
   status: string;
   planKey: string;

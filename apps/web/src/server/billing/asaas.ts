@@ -230,11 +230,52 @@ export function updateSubscription(
   });
 }
 
+/**
+ * Change how an existing subscription charges from the next renewal on, without
+ * charging today. `PIX` drops autopay — Asaas generates a manual Pix charge each
+ * cycle; `CREDIT_CARD` needs a `creditCardToken` (from {@link tokenizeCard}) and
+ * auto-charges every renewal. `updatePendingPayments` rewrites the open
+ * future-dated charge to the new method so the next renewal already uses it. The
+ * subscription keeps its `nextDueDate`, so nothing is charged now for an active
+ * subscriber whose current period is already paid.
+ */
+export function updateSubscriptionMethod(
+  subscriptionId: string,
+  input: {
+    billingType: "PIX" | "CREDIT_CARD";
+    /** Required for CREDIT_CARD; ignored for PIX. */
+    creditCardToken?: string;
+    /** Payer's IP (NOT the server's). Sent with a card assignment. */
+    remoteIp?: string;
+  },
+): Promise<AsaasSubscription> {
+  return asaas<AsaasSubscription>(`/subscriptions/${subscriptionId}`, {
+    method: "POST",
+    json: { updatePendingPayments: true, ...input },
+  });
+}
+
 export async function getSubscriptionPayments(
   subscriptionId: string,
 ): Promise<AsaasPayment[]> {
   const res = await asaas<{ data: AsaasPayment[] }>(
     `/subscriptions/${subscriptionId}/payments`,
+  );
+  return res.data ?? [];
+}
+
+/**
+ * Every charge for a customer, across all of their subscriptions and any
+ * one-off payments. The payment-history page reads this (not a single
+ * subscription's charges) so a charge stays visible even after a re-checkout
+ * supersedes the subscription it was created under. `limit=100` is Asaas's max
+ * page size; one page covers any realistic history without paginating.
+ */
+export async function getCustomerPayments(
+  customerId: string,
+): Promise<AsaasPayment[]> {
+  const res = await asaas<{ data: AsaasPayment[] }>(
+    `/payments?customer=${encodeURIComponent(customerId)}&limit=100`,
   );
   return res.data ?? [];
 }

@@ -8,6 +8,7 @@ import { type RawCard, validateCard } from "@/lib/card";
 import { rateLimit } from "@/lib/rate-limit";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
+import { getWorkspaceOpenCharge } from "./payments";
 import {
   cancelWorkspaceSubscription,
   changeCard,
@@ -18,6 +19,8 @@ import {
   resumeSubscription,
   startCardSubscription,
   startPixSubscription,
+  switchToCardBilling,
+  switchToPixBilling,
 } from "./subscription";
 import { type StartTrialResult, startTrial } from "./trial";
 
@@ -275,6 +278,121 @@ export async function updateCardAction(
       reason: err instanceof Error ? err.message : "unknown",
     });
     return { ok: false, error: cardErrorMessage(err) };
+  }
+}
+
+export interface SwitchMethodResult {
+  ok: boolean;
+  /** New card metadata when switching to card; absent for Pix. */
+  card?: { last4: string; brand: string };
+  error?: string;
+}
+
+/**
+ * Move an active subscription to manual Pix billing, effective next renewal.
+ * Nothing is charged now. From the next due date Asaas generates a Pix charge
+ * and the webhook emails the invoice. Owner-only.
+ */
+export async function switchToPixAction(): Promise<SwitchMethodResult> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace)
+    return { ok: false, error: "Sessão expirada. Entre novamente." };
+  if (!can(workspace.role, "billing.manage")) {
+    return { ok: false, error: NO_BILLING_PERMISSION };
+  }
+
+  try {
+    await switchToPixBilling(workspace.id);
+    return { ok: true };
+  } catch (err) {
+    console.error("billing.switch_to_pix_failed", err);
+    return {
+      ok: false,
+      error: "Não foi possível mudar para Pix agora. Tente novamente.",
+    };
+  }
+}
+
+/**
+ * Move an active Pix subscription to card autopay, effective next renewal. The
+ * card is tokenized and attached now but nothing is charged today — the next
+ * renewal is auto-charged. Validated, rate-limited (anti card-testing), never
+ * logs card data. Owner-only.
+ */
+export async function switchToCardAction(
+  card: RawCard,
+): Promise<SwitchMethodResult> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace)
+    return { ok: false, error: "Sessão expirada. Entre novamente." };
+  if (!can(workspace.role, "billing.manage")) {
+    return { ok: false, error: NO_BILLING_PERMISSION };
+  }
+
+  const invalid = validateCard(card);
+  if (invalid) return { ok: false, error: invalid };
+
+  const ip = await clientIp();
+  const allowed =
+    (await rateLimit(`card:ws:${workspace.id}`, 8, 600)) &&
+    (await rateLimit(`card:ip:${ip}`, 12, 600));
+  if (!allowed) {
+    return { ok: false, error: "Muitas tentativas. Aguarde alguns minutos." };
+  }
+
+  const profile = await billingProfile(session.user.id);
+  if (!profile?.document || !profile.zip || !profile.number) {
+    return { ok: false, error: "Complete seu cadastro para usar cartão." };
+  }
+
+  try {
+    const result = await switchToCardBilling(
+      workspace.id,
+      {
+        name: session.user.name ?? session.user.email,
+        email: session.user.email,
+        cpfCnpj: profile.document,
+        phone: profile.phone || undefined,
+        postalCode: profile.zip,
+        addressNumber: profile.number,
+      },
+      {
+        holderName: card.holderName.trim(),
+        number: card.number.replace(/\D/g, ""),
+        expiryMonth: card.expiryMonth.trim(),
+        expiryYear: card.expiryYear.trim(),
+        ccv: card.ccv.trim(),
+      },
+      ip,
+    );
+    return { ok: true, card: result };
+  } catch (err) {
+    console.error("billing.switch_to_card_failed", {
+      workspaceId: workspace.id,
+      reason: err instanceof Error ? err.message : "unknown",
+    });
+    return { ok: false, error: cardErrorMessage(err) };
+  }
+}
+
+/**
+ * Poll target for the in-app "pay your open invoice" UI. Returns whether the
+ * workspace's open renewal charge has cleared (no open charge left), so the
+ * client can refresh to the paid state the moment the Pix lands. Best-effort:
+ * treats a read failure as "still open" so the UI keeps waiting rather than
+ * falsely declaring success.
+ */
+export async function checkOpenChargePaidAction(): Promise<{ paid: boolean }> {
+  const session = await requireSession();
+  const workspace = await getActiveWorkspace(session.user.id);
+  if (!workspace) return { paid: false };
+  try {
+    const open = await getWorkspaceOpenCharge(workspace.id);
+    return { paid: open === null };
+  } catch {
+    return { paid: false };
   }
 }
 

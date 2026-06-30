@@ -152,6 +152,39 @@ export async function sendPaymentReceiptEmail(args: {
   );
 }
 
+export async function sendInvoiceReadyEmail(args: {
+  to: string;
+  name?: string | null;
+  /** Charge amount in cents. */
+  amountCents: number;
+  /** Due date of the charge, or null when unknown. */
+  dueDate: Date | null;
+  /** Login-gated page where the customer pays the Pix in-app. */
+  payUrl: string;
+}): Promise<void> {
+  const hi = args.name ? `Olá, ${args.name}. ` : "";
+  const due = args.dueDate
+    ? new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }).format(args.dueDate)
+    : null;
+  const detail = `Valor: ${brl(args.amountCents)}${due ? ` · vence em ${due}` : ""}.`;
+  await send(
+    args.to,
+    "Sua fatura Pro está pronta — linkview",
+    layout({
+      heading: "Fatura do próximo período",
+      intro: `${hi}Geramos a fatura da sua renovação Pro por Pix. ${detail} Entre na sua conta e pague em segundos — o QR Code e o código copia e cola ficam na página de pagamentos.`,
+      buttonLabel: "Entrar e pagar",
+      buttonUrl: args.payUrl,
+      footnote:
+        "Você precisa estar logado para pagar com segurança. Seu acesso Pro continua normalmente até o vencimento.",
+    }),
+  );
+}
+
 export async function sendCardChargeFailedEmail(args: {
   to: string;
   name?: string | null;

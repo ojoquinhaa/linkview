@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  getWorkspaceOpenCharge,
   listWorkspacePayments,
   type PaymentMethod,
   type PaymentRow,
@@ -8,6 +9,7 @@ import {
 } from "@/server/billing/payments";
 import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
+import { OpenChargePay } from "./open-charge";
 
 const brl = (cents: number) =>
   (cents / 100).toLocaleString("pt-BR", {
@@ -41,9 +43,10 @@ export default async function PagamentosPage() {
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) redirect("/login");
 
-  const { payments, neverPaid, unavailable } = await listWorkspacePayments(
-    workspace.id,
-  );
+  const [{ payments, neverPaid, unavailable }, openCharge] = await Promise.all([
+    listWorkspacePayments(workspace.id),
+    getWorkspaceOpenCharge(workspace.id),
+  ]);
 
   const lastPaid = payments.find((p) => p.state === "paid");
   const summary = unavailable
@@ -65,6 +68,24 @@ export default async function PagamentosPage() {
 
       <div className="px-6 py-7 sm:px-8">
         <div className="mx-auto w-full max-w-[52rem]">
+          {openCharge &&
+            openCharge.method !== "card" &&
+            (openCharge.pix || openCharge.invoiceUrl) && (
+            <OpenChargePay
+              charge={{
+                amountCents: openCharge.amountCents,
+                dueLabel: openCharge.dueDate ? fmtDate(openCharge.dueDate) : null,
+                state: openCharge.state === "overdue" ? "overdue" : "pending",
+                invoiceUrl: openCharge.invoiceUrl,
+                pix: openCharge.pix
+                  ? {
+                      encodedImage: openCharge.pix.encodedImage,
+                      payload: openCharge.pix.payload,
+                    }
+                  : null,
+              }}
+            />
+          )}
           {unavailable ? (
             <Unavailable />
           ) : payments.length === 0 ? (

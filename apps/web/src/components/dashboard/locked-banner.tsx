@@ -4,7 +4,7 @@ import Link from "next/link";
  * Persistent bar shown when a workspace's billing has lapsed (`locked` access).
  * The dashboard stays reachable read-only so the user can review their data and
  * pay — this explains why nothing saves and links are offline, and routes them
- * to reactivate. Distinct from PastDueBanner, which warns *before* the lapse.
+ * to reactivate. Distinct from BillingAlertBanner, which warns *before* the lapse.
  */
 export function LockedBanner() {
   return (

@@ -13,6 +13,9 @@ import type { RawCard } from "@/lib/card";
 import {
   cancelSubscriptionAction,
   resumeSubscriptionAction,
+  switchBillingCycleAction,
+  switchToCardAction,
+  switchToPixAction,
   updateCardAction,
 } from "@/server/billing/actions";
 
@@ -81,6 +84,7 @@ export function PlanActions({
         currentCycle={currentCycle}
         pricing={pricing}
         autopay={autopay}
+        nextChargeLabel={nextChargeLabel}
       />
       <CancelRow />
     </>
@@ -99,9 +103,11 @@ const BRAND_LABEL: Record<string, string> = {
 };
 
 /**
- * Payment-method panel for an active subscriber. Card autopay shows the card on
- * file and swaps it in place through our own form (tokenized, no charge, no
- * hosted page). Manual (Pix/boleto) subscribers just see how renewal works.
+ * Payment-method panel for an active subscriber. Shows the method on file and
+ * lets the owner switch it, effective the next renewal with no charge today:
+ *  - Card → swap the card in place (tokenized, no charge), or move to Pix.
+ *  - Pix  → add a card so the next renewal is auto-charged.
+ * The next renewal date frames every action so the user knows when it applies.
  */
 function PaymentMethodRow({
   autopay,
@@ -115,21 +121,54 @@ function PaymentMethodRow({
   cardBrand: string | null;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [swapOpen, setSwapOpen] = useState(false);
+  const [addCardOpen, setAddCardOpen] = useState(false);
+  const [toPixConfirm, setToPixConfirm] = useState(false);
+  const [toPixLoading, setToPixLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(card: RawCard): Promise<string | null> {
+  // Swap the card on a card subscription (no charge, next renewals).
+  async function onSwapCard(card: RawCard): Promise<string | null> {
     const res = await updateCardAction(card);
     if (!res.ok) return res.error ?? "Não foi possível trocar o cartão.";
-    setOpen(false);
+    setSwapOpen(false);
     router.refresh();
     return null;
   }
 
+  // Move a Pix subscription to card autopay (tokenize now, charge next renewal).
+  async function onAddCard(card: RawCard): Promise<string | null> {
+    const res = await switchToCardAction(card);
+    if (!res.ok) return res.error ?? "Não foi possível salvar o cartão.";
+    setAddCardOpen(false);
+    router.refresh();
+    return null;
+  }
+
+  // Move a card subscription to manual Pix (no charge; invoice emailed at renewal).
+  async function onSwitchToPix() {
+    setError(null);
+    setToPixLoading(true);
+    const res = await switchToPixAction();
+    if (!res.ok) {
+      setError(res.error ?? "Não foi possível mudar para Pix.");
+      setToPixLoading(false);
+      return;
+    }
+    setToPixConfirm(false);
+    setToPixLoading(false);
+    router.refresh();
+  }
+
   const brand = cardBrand ? (BRAND_LABEL[cardBrand] ?? cardBrand) : null;
+  const renewal = nextChargeLabel ? ` em ${nextChargeLabel}` : "";
 
   return (
     <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)] sm:p-7">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1.5">
+      <div className="flex min-w-0 items-start gap-3.5">
+        <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-paper-sunk text-muted">
+          {autopay ? <CardIcon /> : <PixIcon />}
+        </span>
         <div className="min-w-0">
           <h3 className="font-display text-[1.1rem] font-semibold tracking-[-0.01em] text-ink">
             Forma de pagamento
@@ -137,32 +176,112 @@ function PaymentMethodRow({
           <p className="mt-1.5 text-[0.88rem] text-muted">
             {autopay
               ? cardLast4
-                ? `${brand ? `${brand} ` : "Cartão "}···· ${cardLast4} · renovação automática${nextChargeLabel ? ` em ${nextChargeLabel}` : ""}.`
-                : `Cartão de crédito · renovação automática${nextChargeLabel ? ` em ${nextChargeLabel}` : ""}.`
-              : `Pix ou boleto · você paga a cada ciclo${nextChargeLabel ? `, próxima em ${nextChargeLabel}` : ""}.`}
+                ? `${brand ? `${brand} ` : "Cartão "}···· ${cardLast4} · renovação automática${renewal}.`
+                : `Cartão de crédito · renovação automática${renewal}.`
+              : `Pix · você paga a cada ciclo${nextChargeLabel ? `, próxima${renewal}` : ""}. Enviamos a fatura por e-mail.`}
           </p>
         </div>
       </div>
 
-      {autopay && (
+      {error && (
+        <div
+          role="alert"
+          className="mt-4 rounded-[var(--radius-input)] border border-danger/30 bg-danger-weak px-3.5 py-2.5 text-[0.85rem] text-danger"
+        >
+          {error}
+        </div>
+      )}
+
+      {/* Card → swap card / move to Pix. */}
+      {autopay && !toPixConfirm && (
+        <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setSwapOpen(true)}
+            className="sm:w-auto"
+          >
+            Trocar cartão
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setError(null);
+              setToPixConfirm(true);
+            }}
+            className="sm:w-auto"
+          >
+            Mudar para Pix
+          </Button>
+        </div>
+      )}
+
+      {/* Card → Pix confirmation. */}
+      {autopay && toPixConfirm && (
+        <div className="mt-5">
+          <p className="text-[0.85rem] text-ink-soft">
+            A partir da próxima renovação{renewal}, você paga por Pix. Nada é
+            cobrado no cartão automaticamente — enviamos a fatura por e-mail e
+            você paga aqui pelo QR Code. Nada muda até lá.
+          </p>
+          <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
+            <Button
+              type="button"
+              loading={toPixLoading}
+              onClick={onSwitchToPix}
+              className="sm:w-auto"
+            >
+              Confirmar mudança para Pix
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={toPixLoading}
+              onClick={() => setToPixConfirm(false)}
+            >
+              Voltar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Pix → add a card for autopay. */}
+      {!autopay && (
         <Button
           type="button"
           variant="secondary"
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            setError(null);
+            setAddCardOpen(true);
+          }}
           className="mt-5 w-full sm:w-auto"
         >
-          Trocar cartão
+          Pagar com cartão
         </Button>
       )}
 
       <Modal
-        open={open}
-        onClose={() => setOpen(false)}
+        open={swapOpen}
+        onClose={() => setSwapOpen(false)}
         title="Trocar cartão"
         description="O novo cartão passa a valer para as próximas renovações. Nada é cobrado agora."
       >
         <CardForm
-          onSubmit={onSubmit}
+          onSubmit={onSwapCard}
+          submitLabel="Salvar cartão"
+          note="Não cobramos nada agora. Não guardamos os dados do cartão."
+        />
+      </Modal>
+
+      <Modal
+        open={addCardOpen}
+        onClose={() => setAddCardOpen(false)}
+        title="Pagar com cartão"
+        description={`Seu cartão será cobrado automaticamente só na próxima renovação${renewal}. Nada é cobrado agora.`}
+      >
+        <CardForm
+          onSubmit={onAddCard}
           submitLabel="Salvar cartão"
           note="Não cobramos nada agora. Não guardamos os dados do cartão."
         />
@@ -171,33 +290,83 @@ function PaymentMethodRow({
   );
 }
 
+function CardIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-[18px]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+      <line x1="2.5" y1="9.5" x2="21.5" y2="9.5" />
+      <line x1="6" y1="14.5" x2="9" y2="14.5" />
+    </svg>
+  );
+}
+
+function PixIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="size-[18px]"
+      fill="currentColor"
+    >
+      <path d="M12 2.6a2 2 0 0 1 1.43.6l6.77 6.77a2 2 0 0 1 0 2.83l-6.77 6.77a2 2 0 0 1-2.86 0L3.8 12.8a2 2 0 0 1 0-2.83L10.57 3.2A2 2 0 0 1 12 2.6Zm0 2.23L5.23 11.6a.57.57 0 0 0 0 .8L12 19.17l6.77-6.77a.57.57 0 0 0 0-.8Z" />
+    </svg>
+  );
+}
+
 /**
- * Monthly ⇄ annual switch for an active subscriber. Centralized on our own
- * checkout: the button routes to /assinar/pagamento for the target cycle, which
- * charges the new cycle now and credits the unused days of the current period as
- * extra time on the new period (no Asaas hosted page, no in-place edit).
+ * Monthly ⇄ annual switch for an active subscriber. The two directions differ:
+ *  - Upgrade (monthly → annual): routes to our checkout, charges the annual
+ *    price now and credits the unused days of the current period as extra time.
+ *  - Downgrade (annual → monthly): no charge now — scheduled in place at Asaas.
+ *    The current paid annual period runs out untouched, then renewal flips to
+ *    monthly. We just flag the change; nothing is billed until renewal.
  */
 function CycleSwitch({
   currentCycle,
   pricing,
   autopay,
+  nextChargeLabel,
 }: {
   currentCycle: BillingCycle;
   pricing: BillingCyclePricing;
   autopay: boolean;
+  nextChargeLabel: string | null;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const target: BillingCycle = currentCycle === "yearly" ? "monthly" : "yearly";
   const toAnnual = target === "yearly";
 
-  function onSwitch() {
+  // Upgrade pays now via checkout; downgrade just schedules the cycle change.
+  async function onSwitch() {
+    setError(null);
     setLoading(true);
-    // Same payment method the user already pays with; both land on our checkout.
-    const method = autopay ? "card" : "pix";
-    router.push(`/assinar/pagamento?cycle=${target}&method=${method}&switch=1`);
+    if (toAnnual) {
+      const method = autopay ? "card" : "pix";
+      router.push(`/assinar/pagamento?cycle=yearly&method=${method}&switch=1`);
+      return;
+    }
+    const res = await switchBillingCycleAction("monthly");
+    if (!res.ok) {
+      setError(res.error ?? "Não foi possível mudar o ciclo.");
+      setLoading(false);
+      return;
+    }
+    setConfirming(false);
+    setLoading(false);
+    router.refresh();
   }
 
   const newPriceLine = toAnnual
@@ -224,12 +393,34 @@ function CycleSwitch({
         )}
       </div>
 
+      {error && (
+        <div
+          role="alert"
+          className="mt-4 rounded-[var(--radius-input)] border border-danger/30 bg-danger-weak px-3.5 py-2.5 text-[0.85rem] text-danger"
+        >
+          {error}
+        </div>
+      )}
+
       {confirming ? (
         <div className="mt-5">
           <p className="text-[0.85rem] text-ink-soft">
-            Você paga {toAnnual ? "o valor anual" : "o valor mensal"} agora no
-            checkout. Os dias restantes do seu período atual entram como tempo
-            extra no novo período — você não perde nada.
+            {toAnnual ? (
+              <>
+                Você paga o valor anual agora no checkout. Os dias restantes do
+                seu período atual entram como tempo extra no novo período — você
+                não perde nada.
+              </>
+            ) : (
+              <>
+                Sem cobrança agora. Seu plano anual segue até{" "}
+                <span className="font-medium text-ink">
+                  {nextChargeLabel ?? "o fim do período"}
+                </span>
+                ; a partir daí você passa a pagar {brl(pricing.monthlyCents)} por
+                mês.
+              </>
+            )}
           </p>
           <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
             <Button
@@ -238,9 +429,7 @@ function CycleSwitch({
               onClick={onSwitch}
               className="sm:w-auto"
             >
-              {toAnnual
-                ? "Ir para o checkout anual"
-                : "Ir para o checkout mensal"}
+              {toAnnual ? "Ir para o checkout anual" : "Confirmar mudança"}
             </Button>
             <Button
               type="button"

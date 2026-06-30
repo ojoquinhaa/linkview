@@ -1,7 +1,9 @@
 import { PAST_DUE_GRACE_DAYS } from "@linkview/shared";
 import { redirect } from "next/navigation";
+import type { BillingAlertKind } from "@/components/dashboard/billing-alert-banner";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { isPlatformAdmin } from "@/server/admin/guard";
+import { getOpenChargeInfo } from "@/server/billing/payments";
 import {
   getWorkspaceSubscription,
   resolveSubscriptionAccess,
@@ -11,6 +13,19 @@ import { requireSession } from "@/server/session";
 import { getActiveWorkspace } from "@/server/workspace";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const fmtDate = (d: Date) =>
+  new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(d);
+
+export interface BillingAlert {
+  kind: BillingAlertKind;
+  dueLabel: string | null;
+  daysLeft: number | null;
+}
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Grátis",
@@ -39,7 +54,7 @@ export default async function DashboardLayout({
 
   // Platform admins bypass the paid-subscription gate so they can audit the
   // product without holding a plan of their own.
-  let pastDueDaysLeft: number | null = null;
+  let billingAlert: BillingAlert | null = null;
   let locked = false;
   if (!admin) {
     const sub = await getWorkspaceSubscription(workspace.id);
@@ -51,15 +66,46 @@ export default async function DashboardLayout({
     // trapped on /assinar with a paid (or recently-paid) plan.
     if (access === "none") redirect("/assinar");
     locked = access === "locked";
-    if (!locked && sub?.status === "past_due" && sub.currentPeriodEnd) {
-      // Inside the past-due tolerance window: full access, but warn how long is
-      // left so the user pays before the lapse to `locked`.
-      const graceEnd =
-        sub.currentPeriodEnd.getTime() + PAST_DUE_GRACE_DAYS * DAY_MS;
-      pastDueDaysLeft = Math.max(
-        0,
-        Math.ceil((graceEnd - Date.now()) / DAY_MS),
-      );
+
+    // Surface an actionable billing notice as a fixed banner, matching the email
+    // we send for the same event. Skipped when locked (LockedBanner takes over).
+    if (!locked) {
+      const pastDue = sub?.status === "past_due";
+      // Days left in the past-due tolerance window, so the user pays before the
+      // lapse to `locked`.
+      const daysLeft =
+        pastDue && sub?.currentPeriodEnd
+          ? Math.max(
+              0,
+              Math.ceil(
+                (sub.currentPeriodEnd.getTime() +
+                  PAST_DUE_GRACE_DAYS * DAY_MS -
+                  Date.now()) /
+                  DAY_MS,
+              ),
+            )
+          : null;
+
+      const autopay = sub?.autopay ?? false;
+
+      let kind: BillingAlertKind | null = null;
+      let dueLabel: string | null = null;
+      if (autopay) {
+        // Card autopay: alarm only when the charge is actually failing
+        // (past due) — never while a normal renewal is auto-capturing. No Asaas
+        // call needed; the copy is driven by the tolerance window.
+        if (pastDue) kind = "card_failed";
+      } else {
+        // Pix (manual): hit Asaas once to learn whether a renewal invoice is
+        // open and whether it has lapsed. Only manual workspaces pay this cost.
+        const open = await getOpenChargeInfo(workspace.id);
+        const overdue = pastDue || open?.state === "overdue";
+        if (overdue) kind = "pix_overdue";
+        else if (open) kind = "pix_pending";
+        dueLabel = open?.dueDate ? fmtDate(open.dueDate) : null;
+      }
+
+      if (kind) billingAlert = { kind, dueLabel, daysLeft };
     }
   }
 
@@ -73,7 +119,7 @@ export default async function DashboardLayout({
       roleLabel={ROLE_LABELS[workspace.role] ?? workspace.role}
       isAdmin={admin}
       trialDaysLeft={trial?.daysLeft ?? null}
-      pastDueDaysLeft={pastDueDaysLeft}
+      billingAlert={billingAlert}
       locked={locked}
     >
       {children}
