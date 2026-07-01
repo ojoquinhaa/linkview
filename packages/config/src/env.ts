@@ -26,6 +26,22 @@ export const serverEnvSchema = z.object({
   // Defaults to production; set the sandbox URL while testing.
   ASAAS_API_URL: z.string().url().optional(),
 
+  // NFS-e (service invoice) emission. All optional: when the municipal service
+  // is unset, automatic invoice emission is simply not configured on new
+  // subscriptions. Tax rates are strings in env, coerced to numbers. Rates
+  // depend on the emitter's tax regime — validate with an accountant.
+  ASAAS_NFSE_MUNICIPAL_SERVICE_ID: z.string().optional(),
+  ASAAS_NFSE_MUNICIPAL_SERVICE_CODE: z.string().optional(),
+  ASAAS_NFSE_MUNICIPAL_SERVICE_NAME: z.string().optional(),
+  ASAAS_NFSE_RETAIN_ISS: z.coerce.boolean().optional(),
+  ASAAS_NFSE_ISS: z.coerce.number().optional(),
+  ASAAS_NFSE_PIS: z.coerce.number().optional(),
+  ASAAS_NFSE_COFINS: z.coerce.number().optional(),
+  ASAAS_NFSE_CSLL: z.coerce.number().optional(),
+  ASAAS_NFSE_INSS: z.coerce.number().optional(),
+  ASAAS_NFSE_IR: z.coerce.number().optional(),
+  ASAAS_NFSE_OBSERVATIONS: z.string().optional(),
+
   // Email (Resend)
   RESEND_API_KEY: z.string().min(1),
   EMAIL_FROM: z.string().min(1).optional(),

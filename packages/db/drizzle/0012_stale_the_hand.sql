@@ -1,0 +1,1 @@
+ALTER TABLE "subscriptions" ADD COLUMN "stale_provider_subscription_id" text;

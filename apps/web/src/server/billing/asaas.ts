@@ -116,6 +116,9 @@ export interface AsaasTokenizedCard {
 export interface AsaasPayment {
   id: string;
   status: string;
+  /** Owning subscription id (pay_… charges created by a subscription), when any.
+   * Used to map an NFS-e (which references only its charge) back to a workspace. */
+  subscription?: string | null;
   /** Amount in BRL (e.g. 19.9), not cents. */
   value: number;
   /** PIX | BOLETO | CREDIT_CARD | UNDEFINED. */
@@ -202,10 +205,13 @@ export function updateSubscriptionCard(
   subscriptionId: string,
   input: { creditCardToken: string; remoteIp: string },
 ): Promise<AsaasSubscription> {
-  return asaas<AsaasSubscription>(`/subscriptions/${subscriptionId}/creditCard`, {
-    method: "PUT",
-    json: input,
-  });
+  return asaas<AsaasSubscription>(
+    `/subscriptions/${subscriptionId}/creditCard`,
+    {
+      method: "PUT",
+      json: input,
+    },
+  );
 }
 
 /**
@@ -301,8 +307,110 @@ export function getPixQrCode(paymentId: string): Promise<AsaasPixQrCode> {
   return asaas<AsaasPixQrCode>(`/payments/${paymentId}/pixQrCode`);
 }
 
+/** Tax rates for an NFS-e. All required by Asaas; rates depend on the emitter's
+ * tax regime (Simples Nacional vs Regime Normal) — validate with an accountant. */
+export interface AsaasInvoiceTaxes {
+  /** Whether the taker withholds ISS. */
+  retainIss: boolean;
+  iss: number;
+  pis: number;
+  cofins: number;
+  csll: number;
+  inss: number;
+  ir: number;
+}
+
+/** A municipal service option returned by {@link listMunicipalServices}. */
+export interface AsaasMunicipalService {
+  id: string;
+  /** e.g. "1.01". */
+  code?: string;
+  description?: string;
+}
+
+/** An NFS-e (service invoice) as Asaas reports it. `pdfUrl`/`xmlUrl`/`number`/
+ * `validationCode` are only populated once the note reaches `AUTHORIZED`. */
+export interface AsaasInvoice {
+  id: string;
+  /** SCHEDULED | AUTHORIZED | PROCESSING_CANCELLATION | CANCELED |
+   * CANCELLATION_DENIED | ERROR. */
+  status: string;
+  /** Charge id the note bills, e.g. "pay_…". */
+  payment?: string | null;
+  pdfUrl?: string | null;
+  xmlUrl?: string | null;
+  number?: string | null;
+  validationCode?: string | null;
+  /** Note total in BRL (not cents). */
+  value?: number | null;
+}
+
+/**
+ * Configure automatic NFS-e emission for a subscription. Once set, Asaas
+ * schedules and emits a service invoice for every charge the subscription
+ * generates (including renewals), then reports the lifecycle via `INVOICE_*`
+ * webhook events — no per-charge call needed. `effectiveDatePeriod`
+ * `ON_PAYMENT_CONFIRMATION` + `receivedOnly` issues only after a charge is paid.
+ * `municipalServiceCode` (or `municipalServiceId`) identifies the service; when
+ * only a code is available Asaas also wants a `municipalServiceName`.
+ */
+export function configureSubscriptionInvoices(
+  subscriptionId: string,
+  input: {
+    taxes: AsaasInvoiceTaxes;
+    municipalServiceId?: string;
+    municipalServiceCode?: string;
+    municipalServiceName?: string;
+    /** Defaults to ON_PAYMENT_CONFIRMATION. */
+    effectiveDatePeriod?:
+      | "ON_PAYMENT_CONFIRMATION"
+      | "ON_PAYMENT_DUE_DATE"
+      | "BEFORE_PAYMENT_DUE_DATE"
+      | "ON_DUE_DATE_MONTH"
+      | "ON_NEXT_MONTH";
+    /** Only emit for paid charges. Defaults to true. */
+    receivedOnly?: boolean;
+    observations?: string;
+  },
+): Promise<unknown> {
+  const {
+    effectiveDatePeriod = "ON_PAYMENT_CONFIRMATION",
+    receivedOnly = true,
+    ...rest
+  } = input;
+  return asaas(`/subscriptions/${subscriptionId}/invoiceSettings`, {
+    method: "POST",
+    json: { effectiveDatePeriod, receivedOnly, ...rest },
+  });
+}
+
+/**
+ * List the municipal service options for the emitter's city, optionally filtered
+ * by a `description` substring. Used to look up the `municipalServiceId`/code to
+ * feed {@link configureSubscriptionInvoices}. Returns at most 500 per call.
+ */
+export async function listMunicipalServices(
+  description?: string,
+): Promise<AsaasMunicipalService[]> {
+  const query = description
+    ? `?description=${encodeURIComponent(description)}`
+    : "";
+  const res = await asaas<{ data: AsaasMunicipalService[] }>(
+    `/invoices/municipalServices${query}`,
+  );
+  return res.data ?? [];
+}
+
 export async function cancelSubscription(
   subscriptionId: string,
 ): Promise<void> {
-  await asaas(`/subscriptions/${subscriptionId}`, { method: "DELETE" });
+  try {
+    await asaas(`/subscriptions/${subscriptionId}`, { method: "DELETE" });
+  } catch (err) {
+    // A 404 means the subscription is already gone — treat the cancel as done
+    // so callers and the cron backstop stop retrying an id that can never bill
+    // the customer again.
+    if (err instanceof Error && err.message.startsWith("Asaas 404:")) return;
+    throw err;
+  }
 }

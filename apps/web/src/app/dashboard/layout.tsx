@@ -15,7 +15,7 @@ import {
 } from "@/server/billing/subscription";
 import { getTrialStatus } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
-import { getActiveWorkspace } from "@/server/workspace";
+import { ensureActiveWorkspace } from "@/server/workspace";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -52,8 +52,11 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const session = await requireSession();
-  const workspace = await getActiveWorkspace(session.user.id);
-  if (!workspace) redirect("/login");
+  // Provision a fresh free workspace if the user has none — e.g. a returning
+  // customer whose only workspace was soft-deleted by the retention purge.
+  // Without this the null case redirected to /login, which bounced the live
+  // session back here: an infinite loop with no way to reach /assinar.
+  const workspace = await ensureActiveWorkspace(session.user.id);
 
   // Account-level lifecycle gate (SECURITY-AUDIT F1). A suspended or closed
   // account keeps reaching the dashboard read-only — with a retention countdown

@@ -54,6 +54,12 @@ export const subscriptions = pgTable(
       .references(() => plans.id, { onDelete: "restrict" }),
     provider: text("provider").notNull().default("asaas"),
     providerSubscriptionId: text("provider_subscription_id"),
+    /** Asaas subscription id a re-checkout superseded but whose inline cancel
+     * failed (provider outage). Stashed so the cron backstop retries the DELETE
+     * until it sticks — otherwise the dead subscription could keep issuing
+     * charges alongside the live one and bill the customer twice. Null once the
+     * cancel lands. */
+    staleProviderSubscriptionId: text("stale_provider_subscription_id"),
     status: subscriptionStatusEnum("status").notNull().default("pending"),
     /** Cadence the workspace pays on. Drives the renewal date the webhook
      * stamps (monthly = +1 month, yearly = +1 year) and the price shown. */
@@ -155,6 +161,51 @@ export const trialRedemptions = pgTable(
     index("trial_redemptions_ip_idx").on(t.ip),
     index("trial_redemptions_fingerprint_idx").on(t.fingerprint),
     index("trial_redemptions_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/**
+ * Fiscal invoices (NFS-e) issued by Asaas for a workspace's paid charges. Asaas
+ * emits the NFS-e automatically after each confirmed payment (configured per
+ * subscription via `invoiceSettings`) and reports its lifecycle through
+ * `INVOICE_*` webhook events. We mirror each note here so its PDF/XML survive the
+ * volatile webhook payload and so the "your invoice is ready" email is sent at
+ * most once per note (`emailedAt`). `providerInvoiceId` is Asaas's `inv_…` id;
+ * `paymentId` is the `pay_…` charge it bills.
+ */
+export const fiscalInvoices = pgTable(
+  "fiscal_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    subscriptionId: uuid("subscription_id").references(() => subscriptions.id, {
+      onDelete: "set null",
+    }),
+    provider: text("provider").notNull().default("asaas"),
+    /** Asaas invoice id, e.g. "inv_000000000232". */
+    providerInvoiceId: text("provider_invoice_id").notNull().unique(),
+    /** Asaas charge id the note bills, e.g. "pay_145059895800". */
+    paymentId: text("payment_id"),
+    /** SCHEDULED | AUTHORIZED | PROCESSING_CANCELLATION | CANCELED |
+     * CANCELLATION_DENIED | ERROR. */
+    status: text("status").notNull(),
+    /** Populated once authorized. */
+    pdfUrl: text("pdf_url"),
+    xmlUrl: text("xml_url"),
+    number: text("number"),
+    validationCode: text("validation_code"),
+    /** Note total, in cents. */
+    valueCents: integer("value_cents"),
+    /** Stamped when the "your fiscal invoice" email is sent, so a duplicate
+     * INVOICE_AUTHORIZED delivery never re-emails. */
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("fiscal_invoices_workspace_idx").on(t.workspaceId),
+    index("fiscal_invoices_payment_idx").on(t.paymentId),
   ],
 );
 

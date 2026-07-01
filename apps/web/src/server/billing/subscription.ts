@@ -26,6 +26,100 @@ import * as asaas from "./asaas";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Retire the Asaas subscription(s) a re-checkout superseded. Cancelling them
+ * stops their leftover (often overdue) charges from competing with the live
+ * subscription and — critically — from ever billing the customer a second time.
+ * Best-effort inline so it never blocks checkout: any id whose DELETE fails is
+ * stashed in `staleProviderSubscriptionId` for the cron backstop to retry, and
+ * the stash is cleared once every id is gone. `cancelSubscription` treats a 404
+ * as success, so an already-deleted id resolves cleanly.
+ */
+async function retireStaleSubscriptions(
+  db: Database,
+  subscriptionRowId: string,
+  providerSubscriptionIds: string[],
+): Promise<void> {
+  let stillOrphaned: string | null = null;
+  for (const id of providerSubscriptionIds) {
+    try {
+      await asaas.cancelSubscription(id);
+    } catch (err) {
+      console.error("billing.stale_subscription_cancel_failed", err);
+      stillOrphaned = id;
+    }
+  }
+  // Set the stash to a still-failing id, or clear it when all cancels landed.
+  await db
+    .update(subscriptions)
+    .set({ staleProviderSubscriptionId: stillOrphaned })
+    .where(eq(subscriptions.id, subscriptionRowId));
+}
+
+/**
+ * Read the NFS-e emission config from env, or null when it isn't set up. The
+ * municipal service (id or code) plus all tax rates are required; a partial
+ * config disables automatic emission rather than sending Asaas an invalid one.
+ */
+function nfseConfigFromEnv(): {
+  taxes: asaas.AsaasInvoiceTaxes;
+  municipalServiceId?: string;
+  municipalServiceCode?: string;
+  municipalServiceName?: string;
+  observations?: string;
+} | null {
+  const e = process.env;
+  const serviceId = e.ASAAS_NFSE_MUNICIPAL_SERVICE_ID?.trim();
+  const serviceCode = e.ASAAS_NFSE_MUNICIPAL_SERVICE_CODE?.trim();
+  if (!serviceId && !serviceCode) return null;
+
+  const rate = (v: string | undefined): number | null => {
+    if (v == null || v.trim() === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const iss = rate(e.ASAAS_NFSE_ISS);
+  const pis = rate(e.ASAAS_NFSE_PIS);
+  const cofins = rate(e.ASAAS_NFSE_COFINS);
+  const csll = rate(e.ASAAS_NFSE_CSLL);
+  const inss = rate(e.ASAAS_NFSE_INSS);
+  const ir = rate(e.ASAAS_NFSE_IR);
+  if ([iss, pis, cofins, csll, inss, ir].some((r) => r == null)) return null;
+
+  return {
+    taxes: {
+      retainIss: e.ASAAS_NFSE_RETAIN_ISS?.trim() === "true",
+      iss: iss as number,
+      pis: pis as number,
+      cofins: cofins as number,
+      csll: csll as number,
+      inss: inss as number,
+      ir: ir as number,
+    },
+    municipalServiceId: serviceId || undefined,
+    municipalServiceCode: serviceCode || undefined,
+    municipalServiceName:
+      e.ASAAS_NFSE_MUNICIPAL_SERVICE_NAME?.trim() || undefined,
+    observations: e.ASAAS_NFSE_OBSERVATIONS?.trim() || undefined,
+  };
+}
+
+/**
+ * Turn on automatic NFS-e emission for a freshly created Asaas subscription so
+ * every paid charge (including renewals) issues a service invoice. Best-effort:
+ * a missing config or an Asaas error is logged and swallowed — invoice emission
+ * must never block checkout, and a failed setup can be backfilled later.
+ */
+async function configureNfse(subscriptionId: string): Promise<void> {
+  const config = nfseConfigFromEnv();
+  if (!config) return;
+  try {
+    await asaas.configureSubscriptionInvoices(subscriptionId, config);
+  } catch (err) {
+    console.error("billing.nfse_config_failed", err);
+  }
+}
+
 /** Asaas payment statuses that mean the money cleared. */
 const PAID_STATUSES = new Set(["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"]);
 
@@ -269,12 +363,16 @@ export async function startPixSubscription(
     billingType: "PIX",
   });
 
+  // Turn on automatic NFS-e emission for this subscription (best-effort).
+  await configureNfse(sub.id);
+
   // One subscription row per workspace: refresh it on re-checkout.
   const [existing] = await db
     .select({
       id: subscriptions.id,
       status: subscriptions.status,
       providerSubscriptionId: subscriptions.providerSubscriptionId,
+      staleProviderSubscriptionId: subscriptions.staleProviderSubscriptionId,
     })
     .from(subscriptions)
     .where(eq(subscriptions.workspaceId, workspaceId))
@@ -305,18 +403,15 @@ export async function startPixSubscription(
       })
       .where(eq(subscriptions.id, existing.id));
     // The new Asaas subscription supersedes any prior one for this workspace.
-    // Cancel the old one so its leftover (often overdue) charges stop competing
-    // and the user pays into the live subscription. Best-effort: never block
-    // checkout.
-    if (
-      existing.providerSubscriptionId &&
-      existing.providerSubscriptionId !== sub.id
-    ) {
-      await asaas
-        .cancelSubscription(existing.providerSubscriptionId)
-        .catch((err) =>
-          console.error("billing.stale_subscription_cancel_failed", err),
-        );
+    // Cancel the old one (plus any earlier orphan the backstop hasn't cleared)
+    // so their leftover charges stop competing and can never bill the customer
+    // twice. Best-effort: failures are stashed for the cron, never block checkout.
+    const toRetire = [
+      existing.providerSubscriptionId,
+      existing.staleProviderSubscriptionId,
+    ].filter((id): id is string => Boolean(id) && id !== sub.id);
+    if (toRetire.length > 0) {
+      await retireStaleSubscriptions(db, existing.id, toRetire);
     }
   } else {
     await db.insert(subscriptions).values({
@@ -421,6 +516,9 @@ export async function startCardSubscription(
     remoteIp,
   });
 
+  // Turn on automatic NFS-e emission for this subscription (best-effort).
+  await configureNfse(sub.id);
+
   const cardFields = {
     autopay: true,
     cardToken: tokenized.creditCardToken,
@@ -435,6 +533,7 @@ export async function startCardSubscription(
       id: subscriptions.id,
       status: subscriptions.status,
       providerSubscriptionId: subscriptions.providerSubscriptionId,
+      staleProviderSubscriptionId: subscriptions.staleProviderSubscriptionId,
     })
     .from(subscriptions)
     .where(eq(subscriptions.workspaceId, workspaceId))
@@ -459,15 +558,15 @@ export async function startCardSubscription(
         ...cardFields,
       })
       .where(eq(subscriptions.id, existing.id));
-    if (
-      existing.providerSubscriptionId &&
-      existing.providerSubscriptionId !== sub.id
-    ) {
-      await asaas
-        .cancelSubscription(existing.providerSubscriptionId)
-        .catch((err) =>
-          console.error("billing.stale_subscription_cancel_failed", err),
-        );
+    // Cancel the superseded Asaas subscription (plus any earlier orphan) so its
+    // leftover charges can never bill the customer twice; failures are stashed
+    // for the cron backstop. Best-effort: never block checkout.
+    const toRetire = [
+      existing.providerSubscriptionId,
+      existing.staleProviderSubscriptionId,
+    ].filter((id): id is string => Boolean(id) && id !== sub.id);
+    if (toRetire.length > 0) {
+      await retireStaleSubscriptions(db, existing.id, toRetire);
     }
   } else {
     await db.insert(subscriptions).values({
@@ -650,6 +749,7 @@ export async function switchToCardBilling(
       id: subscriptions.id,
       status: subscriptions.status,
       providerSubscriptionId: subscriptions.providerSubscriptionId,
+      staleProviderSubscriptionId: subscriptions.staleProviderSubscriptionId,
     })
     .from(subscriptions)
     .where(eq(subscriptions.workspaceId, workspaceId))
@@ -1087,6 +1187,9 @@ export async function resumeSubscription(workspaceId: string): Promise<void> {
     cycle: row.billingCycle === "yearly" ? "YEARLY" : "MONTHLY",
     billingType: row.autopay ? "CREDIT_CARD" : "PIX",
   });
+
+  // Turn on automatic NFS-e emission for this subscription (best-effort).
+  await configureNfse(sub.id);
 
   await db
     .update(subscriptions)

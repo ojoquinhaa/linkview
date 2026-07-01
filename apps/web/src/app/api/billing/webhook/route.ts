@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import {
   billingCustomers,
   billingEvents,
+  fiscalInvoices,
   getDb,
   plans,
   subscriptions,
@@ -9,14 +10,16 @@ import {
   workspaces,
 } from "@linkview/db";
 import { getCyclePriceCents, type PlanKey } from "@linkview/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   emailConfigured,
   sendCardChargeFailedEmail,
+  sendFiscalInvoiceEmail,
   sendInvoiceReadyEmail,
   sendPaymentOverdueEmail,
 } from "@/lib/email";
 import { lockWorkspaceLinks, unlockWorkspaceLinks } from "@/lib/kv";
+import { getPayment } from "@/server/billing/asaas";
 import {
   activatedPeriodEnd,
   mapBillingMethod,
@@ -55,6 +58,20 @@ interface AsaasPayload {
   subscription?: {
     id: string;
     externalReference?: string;
+  };
+  /** Present on INVOICE_* events (NFS-e lifecycle). */
+  invoice?: {
+    id: string;
+    /** SCHEDULED | AUTHORIZED | CANCELED | ERROR | … */
+    status?: string;
+    /** Charge id the note bills, e.g. "pay_…". */
+    payment?: string;
+    pdfUrl?: string;
+    xmlUrl?: string;
+    number?: string;
+    validationCode?: string;
+    /** Note total in BRL (not cents). */
+    value?: number;
   };
 }
 
@@ -148,6 +165,142 @@ async function resolveSubscription(
   return null;
 }
 
+/**
+ * Handle an NFS-e lifecycle event (`INVOICE_*`). Mirrors the note into
+ * `fiscal_invoices` (so its PDF/XML survive the volatile payload) and, on
+ * `INVOICE_AUTHORIZED`, emails the customer the issued note exactly once. The
+ * invoice payload references only its charge, so a note we haven't seen before is
+ * attributed to a workspace by resolving that charge → its subscription → our
+ * row. Unattributable events are ignored. Best-effort throughout: a failed email
+ * never fails the webhook (Asaas would otherwise redeliver forever).
+ */
+async function handleInvoiceEvent(
+  db: ReturnType<typeof getDb>,
+  event: string,
+  payload: AsaasPayload,
+): Promise<void> {
+  const inv = payload.invoice;
+  if (!inv?.id) return;
+
+  const [existing] = await db
+    .select({
+      workspaceId: fiscalInvoices.workspaceId,
+      subscriptionId: fiscalInvoices.subscriptionId,
+      valueCents: fiscalInvoices.valueCents,
+    })
+    .from(fiscalInvoices)
+    .where(eq(fiscalInvoices.providerInvoiceId, inv.id))
+    .limit(1);
+
+  let workspaceId = existing?.workspaceId ?? null;
+  let subscriptionId = existing?.subscriptionId ?? null;
+
+  // First sighting: map the note's charge back to a local subscription/workspace.
+  if (!workspaceId && inv.payment) {
+    try {
+      const payment = await getPayment(inv.payment);
+      if (payment.subscription) {
+        const [sub] = await db
+          .select({
+            id: subscriptions.id,
+            workspaceId: subscriptions.workspaceId,
+          })
+          .from(subscriptions)
+          .where(eq(subscriptions.providerSubscriptionId, payment.subscription))
+          .limit(1);
+        if (sub) {
+          workspaceId = sub.workspaceId;
+          subscriptionId = sub.id;
+        }
+      }
+    } catch (err) {
+      console.error("billing.invoice_payment_lookup_failed", err);
+    }
+  }
+  if (!workspaceId) return; // can't attribute the note — nothing to store/email
+
+  const valueCents =
+    inv.value != null
+      ? Math.round(inv.value * 100)
+      : (existing?.valueCents ?? null);
+  const status = inv.status ?? "SCHEDULED";
+
+  // Upsert. On update, keep any field the new event omits (later events may not
+  // repeat pdf/xml/number once authorized) via COALESCE(new, existing).
+  await db
+    .insert(fiscalInvoices)
+    .values({
+      workspaceId,
+      subscriptionId,
+      providerInvoiceId: inv.id,
+      paymentId: inv.payment ?? null,
+      status,
+      pdfUrl: inv.pdfUrl ?? null,
+      xmlUrl: inv.xmlUrl ?? null,
+      number: inv.number ?? null,
+      validationCode: inv.validationCode ?? null,
+      valueCents,
+    })
+    .onConflictDoUpdate({
+      target: fiscalInvoices.providerInvoiceId,
+      set: {
+        status,
+        subscriptionId: subscriptionId ?? sql`${fiscalInvoices.subscriptionId}`,
+        paymentId: inv.payment ?? sql`${fiscalInvoices.paymentId}`,
+        pdfUrl: inv.pdfUrl ?? sql`${fiscalInvoices.pdfUrl}`,
+        xmlUrl: inv.xmlUrl ?? sql`${fiscalInvoices.xmlUrl}`,
+        number: inv.number ?? sql`${fiscalInvoices.number}`,
+        validationCode:
+          inv.validationCode ?? sql`${fiscalInvoices.validationCode}`,
+        valueCents: valueCents ?? sql`${fiscalInvoices.valueCents}`,
+      },
+    });
+
+  // Note authorized: email the PDF once. Claim the send atomically (flip
+  // `emailedAt` only when unset) so a redelivered AUTHORIZED never re-emails.
+  if (event === "INVOICE_AUTHORIZED" && inv.pdfUrl && emailConfigured()) {
+    const claimed = await db
+      .update(fiscalInvoices)
+      .set({ emailedAt: new Date() })
+      .where(
+        and(
+          eq(fiscalInvoices.providerInvoiceId, inv.id),
+          isNull(fiscalInvoices.emailedAt),
+        ),
+      )
+      .returning({ id: fiscalInvoices.id });
+    if (claimed.length === 0) return; // already emailed
+
+    try {
+      const [customer] = await db
+        .select({ email: billingCustomers.email, name: billingCustomers.name })
+        .from(billingCustomers)
+        .where(eq(billingCustomers.workspaceId, workspaceId))
+        .limit(1);
+      if (customer?.email) {
+        await sendFiscalInvoiceEmail({
+          to: customer.email,
+          name: customer.name,
+          number: inv.number,
+          pdfUrl: inv.pdfUrl,
+        });
+      } else {
+        // No address yet — release the claim so a later trigger can deliver.
+        await db
+          .update(fiscalInvoices)
+          .set({ emailedAt: null })
+          .where(eq(fiscalInvoices.id, claimed[0].id));
+      }
+    } catch (err) {
+      console.error("billing.fiscal_invoice_email_failed", err);
+      await db
+        .update(fiscalInvoices)
+        .set({ emailedAt: null })
+        .where(eq(fiscalInvoices.id, claimed[0].id));
+    }
+  }
+}
+
 /** Constant-time string compare; false (not throw) on length mismatch. */
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -197,6 +350,17 @@ export async function POST(request: Request) {
     .returning({ id: billingEvents.id });
   if (inserted.length === 0) {
     return Response.json({ ok: true, duplicate: true });
+  }
+
+  // NFS-e lifecycle events carry an `invoice`, not a payment/subscription — handle
+  // them on their own path (mirror the note + email the PDF on authorization).
+  if (event.startsWith("INVOICE_")) {
+    await handleInvoiceEvent(db, event, payload);
+    await db
+      .update(billingEvents)
+      .set({ processedAt: new Date() })
+      .where(eq(billingEvents.providerEventId, eventId));
+    return Response.json({ ok: true });
   }
 
   const sub = await resolveSubscription(db, payload);

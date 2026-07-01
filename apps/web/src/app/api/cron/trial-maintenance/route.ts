@@ -13,6 +13,7 @@ import {
 } from "@linkview/shared";
 import { and, eq, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 import { lockWorkspaceLinks } from "@/lib/kv";
+import * as asaas from "@/server/billing/asaas";
 import { reconcilePendingSubscription } from "@/server/billing/subscription";
 
 /**
@@ -28,6 +29,9 @@ import { reconcilePendingSubscription } from "@/server/billing/subscription";
  *  1b4. Expire an abandoned cycle switch (`active` + `pendingBillingCycle` set)
  *     whose old paid period has lapsed with the switch charge still unpaid —
  *     reconcile first (spare a paid-but-unwebhooked switch), else expire to free.
+ *  1e. Retry orphaned provider-subscription cancellations — a superseded Asaas
+ *     subscription whose inline DELETE failed (stashed in
+ *     `staleProviderSubscriptionId`), so it can never bill the customer twice.
  *  1c. Retention purge for paid subscriptions ended (canceled/expired/unpaid)
  *     longer than CANCEL_RETENTION_DAYS — soft-delete the workspace.
  *  1d. Retention purge for suspended/closed accounts past
@@ -193,6 +197,43 @@ async function runMaintenance() {
     switchExpired += 1;
   }
 
+  // Pass 1e — retry orphaned provider-subscription cancellations. A re-checkout
+  // supersedes the old Asaas subscription and cancels it inline so its leftover
+  // charges can never bill the customer a second time; if that DELETE failed (a
+  // provider outage) the orphaned id is stashed in `staleProviderSubscriptionId`.
+  // Retry until it sticks — `cancelSubscription` treats a 404 as success, so an
+  // already-gone id clears the stash instead of looping forever.
+  const orphaned = await db
+    .select({
+      id: subscriptions.id,
+      staleId: subscriptions.staleProviderSubscriptionId,
+    })
+    .from(subscriptions)
+    .where(isNotNull(subscriptions.staleProviderSubscriptionId));
+
+  let staleCanceled = 0;
+  for (const row of orphaned) {
+    if (!row.staleId) continue;
+    try {
+      await asaas.cancelSubscription(row.staleId);
+    } catch {
+      continue; // provider still failing — leave stashed, retry next run
+    }
+    // Clear the stash, guarded on the same id so we don't wipe a *newer* orphan
+    // stashed by a switch that raced this pass.
+    const done = await db
+      .update(subscriptions)
+      .set({ staleProviderSubscriptionId: null })
+      .where(
+        and(
+          eq(subscriptions.id, row.id),
+          eq(subscriptions.staleProviderSubscriptionId, row.staleId),
+        ),
+      )
+      .returning({ id: subscriptions.id });
+    if (done.length > 0) staleCanceled += 1;
+  }
+
   // Pass 1c — retention purge for ended paid subscriptions. A workspace whose
   // paid subscription has been canceled/expired/unpaid for longer than
   // CANCEL_RETENTION_DAYS is soft-deleted: the product data leaves, but the
@@ -291,6 +332,7 @@ async function runMaintenance() {
     overdue: overdue.length,
     pendingLapsed: pendingLapsed.length,
     switchExpired,
+    staleCanceled,
     purgedPaid,
     purgedAccounts,
     purged,

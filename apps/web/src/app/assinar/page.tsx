@@ -13,7 +13,7 @@ import {
 } from "@/server/billing/subscription";
 import { getTrialEligibility } from "@/server/billing/trial";
 import { requireSession } from "@/server/session";
-import { getActiveWorkspace } from "@/server/workspace";
+import { ensureActiveWorkspace } from "@/server/workspace";
 import { Plans } from "./plans";
 
 const PRO_PERKS = [
@@ -27,8 +27,9 @@ const PRO_PERKS = [
 
 export default async function AssinarPage() {
   const session = await requireSession();
-  const workspace = await getActiveWorkspace(session.user.id);
-  if (!workspace) redirect("/login");
+  // Same re-provisioning as the dashboard: a purged returning user lands here to
+  // pay again instead of looping through /login with no workspace.
+  const workspace = await ensureActiveWorkspace(session.user.id);
 
   let sub = await getWorkspaceSubscription(workspace.id);
   // If a charge already cleared at Asaas but the webhook hasn't landed, activate

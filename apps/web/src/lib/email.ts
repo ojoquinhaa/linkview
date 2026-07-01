@@ -22,9 +22,26 @@ function resend(): Resend {
   return client;
 }
 
-async function send(to: string, subject: string, html: string): Promise<void> {
+/** A file to attach: raw bytes (base64) under a display filename. */
+interface EmailAttachment {
+  filename: string;
+  content: string;
+}
+
+async function send(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: EmailAttachment[],
+): Promise<void> {
   const { from } = emailEnv();
-  const { error } = await resend().emails.send({ from, to, subject, html });
+  const { error } = await resend().emails.send({
+    from,
+    to,
+    subject,
+    html,
+    ...(attachments?.length ? { attachments } : {}),
+  });
   if (error) throw new Error(`Resend: ${error.message ?? "envio falhou"}`);
 }
 
@@ -240,6 +257,64 @@ export async function sendSubscriptionCanceledEmail(args: {
       footnote:
         "Seus links e relatórios continuam aqui durante o período de acesso. Se foi engano ou você quer voltar, é um clique.",
     }),
+  );
+}
+
+/**
+ * Best-effort fetch of the NFS-e PDF as a base64 attachment. Returns null on any
+ * failure (Asaas link down, non-PDF, oversize) so the note email still goes out
+ * with the download link instead of failing the whole send.
+ */
+async function fetchPdfAttachment(
+  pdfUrl: string,
+  filename: string,
+): Promise<EmailAttachment | null> {
+  try {
+    const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    // Guard against a huge or empty body (Resend caps attachment size).
+    if (buf.length === 0 || buf.length > 15_000_000) return null;
+    return { filename, content: buf.toString("base64") };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deliver the issued NFS-e. Sent on the `INVOICE_AUTHORIZED` webhook (~15 min
+ * after payment), separate from the payment receipt: the receipt goes out at once
+ * on payment, this follows when the city authorizes the note. Attaches the
+ * official PDF when it can be fetched, and always links it as a fallback.
+ */
+export async function sendFiscalInvoiceEmail(args: {
+  to: string;
+  name?: string | null;
+  /** Note number, when present. */
+  number?: string | null;
+  /** Link to the authorized NFS-e PDF. */
+  pdfUrl: string;
+}): Promise<void> {
+  const hi = args.name ? `Olá, ${args.name}. ` : "";
+  const numberLabel = args.number ? ` nº ${args.number}` : "";
+  const filename = `nota-fiscal${args.number ? `-${args.number}` : ""}.pdf`;
+  const attachment = await fetchPdfAttachment(args.pdfUrl, filename);
+  await send(
+    args.to,
+    "Sua nota fiscal está disponível — linkview",
+    layout({
+      heading: "Nota fiscal emitida",
+      intro: `${hi}A nota fiscal${numberLabel} da sua assinatura Pro foi emitida.${
+        attachment
+          ? " O PDF está anexado a este e-mail e também pode ser baixado no botão abaixo."
+          : " Baixe o PDF no botão abaixo."
+      }`,
+      buttonLabel: "Baixar nota fiscal",
+      buttonUrl: args.pdfUrl,
+      footnote:
+        "Guarde este documento fiscal. Em caso de dúvidas, responda a este e-mail.",
+    }),
+    attachment ? [attachment] : undefined,
   );
 }
 
