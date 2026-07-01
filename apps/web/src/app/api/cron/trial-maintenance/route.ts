@@ -11,8 +11,9 @@ import {
   PAST_DUE_GRACE_DAYS,
   TRIAL_RETENTION_DAYS,
 } from "@linkview/shared";
-import { and, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 import { lockWorkspaceLinks } from "@/lib/kv";
+import { reconcilePendingSubscription } from "@/server/billing/subscription";
 
 /**
  * Trial maintenance job. Runs on a schedule (Vercel Cron / external trigger),
@@ -24,6 +25,9 @@ import { lockWorkspaceLinks } from "@/lib/kv";
  *     has lapsed — flip to `expired` and drop the workspace to free.
  *  1b2. Cut access on past-due subscriptions older than PAST_DUE_GRACE_DAYS —
  *     flip to `expired` and drop the workspace to free.
+ *  1b4. Expire an abandoned cycle switch (`active` + `pendingBillingCycle` set)
+ *     whose old paid period has lapsed with the switch charge still unpaid —
+ *     reconcile first (spare a paid-but-unwebhooked switch), else expire to free.
  *  1c. Retention purge for paid subscriptions ended (canceled/expired/unpaid)
  *     longer than CANCEL_RETENTION_DAYS — soft-delete the workspace.
  *  1d. Retention purge for suspended/closed accounts past
@@ -134,6 +138,61 @@ async function runMaintenance() {
     await lockWorkspaceLinks(row.workspaceId);
   }
 
+  // Pass 1b4 — abandoned cycle switch. A switch keeps the sub `active` with the
+  // target cycle staged in `pendingBillingCycle` while the new charge is
+  // outstanding; the workspace rides the *old* paid period until it clears. If
+  // that period has lapsed and the switch charge is still unpaid, the user is no
+  // longer covered. Reconcile once first — a paid charge whose PAYMENT webhook was
+  // missed still activates and is spared; only a genuinely unpaid switch is
+  // expired + darked. Backstops a missing PAYMENT_OVERDUE webhook (which is what
+  // would otherwise flip it to past_due for Pass 1b2).
+  const switchLapsed = await db
+    .select({ workspaceId: subscriptions.workspaceId })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.status, "active"),
+        isNotNull(subscriptions.pendingBillingCycle),
+        lt(subscriptions.currentPeriodEnd, now),
+      ),
+    );
+
+  let switchExpired = 0;
+  for (const row of switchLapsed) {
+    // A provider read error here throws — skip and retry next run rather than
+    // expiring a possibly-paid workspace on a transient failure.
+    let settled: boolean;
+    try {
+      settled = await reconcilePendingSubscription(row.workspaceId);
+    } catch {
+      continue;
+    }
+    if (settled) continue; // switch charge cleared — now active on the new cycle
+
+    // Still unpaid and the old period is gone: expire, clear the stale target,
+    // drop to free, dark links. Guarded on the state we selected to avoid racing
+    // a payment that landed between the select and here.
+    const done = await db
+      .update(subscriptions)
+      .set({ status: "expired", pendingBillingCycle: null })
+      .where(
+        and(
+          eq(subscriptions.workspaceId, row.workspaceId),
+          eq(subscriptions.status, "active"),
+          isNotNull(subscriptions.pendingBillingCycle),
+          lt(subscriptions.currentPeriodEnd, now),
+        ),
+      )
+      .returning({ workspaceId: subscriptions.workspaceId });
+    if (done.length === 0) continue;
+    await db
+      .update(workspaces)
+      .set({ planKey: "free" })
+      .where(eq(workspaces.id, row.workspaceId));
+    await lockWorkspaceLinks(row.workspaceId);
+    switchExpired += 1;
+  }
+
   // Pass 1c — retention purge for ended paid subscriptions. A workspace whose
   // paid subscription has been canceled/expired/unpaid for longer than
   // CANCEL_RETENTION_DAYS is soft-deleted: the product data leaves, but the
@@ -231,6 +290,7 @@ async function runMaintenance() {
     lapsed: lapsed.length,
     overdue: overdue.length,
     pendingLapsed: pendingLapsed.length,
+    switchExpired,
     purgedPaid,
     purgedAccounts,
     purged,
