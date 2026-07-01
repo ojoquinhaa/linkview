@@ -54,6 +54,14 @@ export const TRIAL_RETENTION_DAYS = 30;
  */
 export const CANCEL_RETENTION_DAYS = 90;
 /**
+ * Grace window (days) after an account leaves the active lifecycle — admin
+ * suspension or LGPD account closure (`user.status` = `suspended`/`deleted`) —
+ * during which the dashboard stays reachable read-only so the owner can settle
+ * up or export, then the owned workspaces are soft-deleted by the maintenance
+ * job. The retention clock starts at `user.deletedAt`.
+ */
+export const ACCOUNT_CLOSURE_RETENTION_DAYS = 30;
+/**
  * Tolerance window (days) a workspace keeps dashboard access after a payment
  * goes overdue (`past_due`). Measured from the last paid period end. Past it,
  * access is cut (subscription → `expired`, workspace → free), whether the

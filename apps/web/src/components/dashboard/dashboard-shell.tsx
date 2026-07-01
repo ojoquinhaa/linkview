@@ -6,8 +6,12 @@ import { useEffect, useId, useState } from "react";
 import { Wordmark } from "@/components/wordmark";
 import { cn } from "@/lib/cn";
 import {
-  type BillingAlertKind,
+  AccountStatusBanner,
+  type AccountStatusKind,
+} from "./account-status-banner";
+import {
   BillingAlertBanner,
+  type BillingAlertKind,
 } from "./billing-alert-banner";
 import { LockedBanner } from "./locked-banner";
 import { NavLinks, SupportLink, WorkspaceFooter } from "./sidebar";
@@ -23,6 +27,7 @@ export function DashboardShell({
   trialDaysLeft,
   billingAlert,
   locked,
+  accountAlert,
   children,
 }: {
   user: { name: string; email: string };
@@ -40,6 +45,12 @@ export function DashboardShell({
   } | null;
   /** Billing lapsed: dashboard is read-only and links are dark until reactivated. */
   locked?: boolean;
+  /** Account suspended/closed: read-only with a retention countdown. Supersedes
+   * every other banner (the account is leaving the platform). */
+  accountAlert?: {
+    kind: AccountStatusKind;
+    daysLeft: number;
+  } | null;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -91,14 +102,23 @@ export function DashboardShell({
           onMenu={() => setOpen(true)}
           menuId={drawerId}
         />
-        {locked && <LockedBanner />}
-        {trialDaysLeft != null && <TrialBanner daysLeft={trialDaysLeft} />}
-        {billingAlert && (
-          <BillingAlertBanner
-            kind={billingAlert.kind}
-            dueLabel={billingAlert.dueLabel}
-            daysLeft={billingAlert.daysLeft}
+        {accountAlert ? (
+          <AccountStatusBanner
+            kind={accountAlert.kind}
+            daysLeft={accountAlert.daysLeft}
           />
+        ) : (
+          <>
+            {locked && <LockedBanner />}
+            {trialDaysLeft != null && <TrialBanner daysLeft={trialDaysLeft} />}
+            {billingAlert && (
+              <BillingAlertBanner
+                kind={billingAlert.kind}
+                dueLabel={billingAlert.dueLabel}
+                daysLeft={billingAlert.daysLeft}
+              />
+            )}
+          </>
         )}
         <main className="min-w-0 flex-1">{children}</main>
       </div>

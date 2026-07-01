@@ -1,7 +1,12 @@
 import { PAST_DUE_GRACE_DAYS } from "@linkview/shared";
 import { redirect } from "next/navigation";
+import type { AccountStatusKind } from "@/components/dashboard/account-status-banner";
 import type { BillingAlertKind } from "@/components/dashboard/billing-alert-banner";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import {
+  getAccountState,
+  resolveAccountClosure,
+} from "@/server/account-status";
 import { isPlatformAdmin } from "@/server/admin/guard";
 import { getOpenChargeInfo } from "@/server/billing/payments";
 import {
@@ -50,13 +55,26 @@ export default async function DashboardLayout({
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) redirect("/login");
 
+  // Account-level lifecycle gate (SECURITY-AUDIT F1). A suspended or closed
+  // account keeps reaching the dashboard read-only — with a retention countdown
+  // — until the maintenance job purges it. This supersedes every billing banner
+  // and the onboarding redirect, and forces read-only (`workspaceCanWrite`
+  // denies the actual writes on the server). Checked before the admin bypass so
+  // a suspended admin is read-only too.
+  const accountState = await getAccountState(session.user.id);
+  const closure = resolveAccountClosure(accountState);
+  let accountAlert: { kind: AccountStatusKind; daysLeft: number } | null = null;
+  if (closure) {
+    accountAlert = { kind: closure.kind, daysLeft: closure.daysLeft };
+  }
+
   const admin = await isPlatformAdmin(session.user.id);
 
   // Platform admins bypass the paid-subscription gate so they can audit the
   // product without holding a plan of their own.
   let billingAlert: BillingAlert | null = null;
   let locked = false;
-  if (!admin) {
+  if (!admin && !closure) {
     const sub = await getWorkspaceSubscription(workspace.id);
     const access = resolveSubscriptionAccess(sub);
     // Only a workspace that has *never* paid is sent to onboarding. A workspace
@@ -109,7 +127,9 @@ export default async function DashboardLayout({
     }
   }
 
-  const trial = await getTrialStatus(workspace.id);
+  // A closed/suspended account is read-only regardless of plan, and its trial
+  // banner is irrelevant.
+  const trial = closure ? null : await getTrialStatus(workspace.id);
 
   return (
     <DashboardShell
@@ -120,7 +140,8 @@ export default async function DashboardLayout({
       isAdmin={admin}
       trialDaysLeft={trial?.daysLeft ?? null}
       billingAlert={billingAlert}
-      locked={locked}
+      locked={locked || closure != null}
+      accountAlert={accountAlert}
     >
       {children}
     </DashboardShell>

@@ -10,6 +10,7 @@ import {
 import { generateSlug, normalizeSlug } from "@linkview/shared";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { captcha } from "better-auth/plugins";
 
 /** Payload handed to the email-sending callbacks. */
 export interface AuthEmailArgs {
@@ -46,6 +47,13 @@ export interface AuthConfig {
 	sendVerificationEmail?: (args: AuthEmailArgs) => Promise<void>;
 	/** Shared store for rate-limit counters. Omit to fall back to in-memory. */
 	secondaryStorage?: AuthSecondaryStorage;
+	/**
+	 * Cloudflare Turnstile secret key. When present, the captcha plugin enforces
+	 * a Turnstile token on the HTTP sign-in / sign-up endpoints (bot protection).
+	 * Omit to disable (local dev without keys). Registration done through the
+	 * server action verifies Turnstile separately — see apps/web/server/turnstile.
+	 */
+	turnstileSecret?: string;
 }
 
 /** Build a unique workspace slug from a display name. */
@@ -119,6 +127,20 @@ export function createAuth(config: AuthConfig) {
 			// set (otherwise Better Auth would move them into the cache store).
 			storeSessionInDatabase: true,
 		},
+		// Bot protection on the credential endpoints via Cloudflare Turnstile. The
+		// plugin is an HTTP middleware: it guards the raw /sign-in/email and
+		// /sign-up/email routes when a token header is required. Password reset is
+		// intentionally left out (no widget on that page). Only wired when a secret
+		// is configured so local dev keeps working without Turnstile keys.
+		...(config.turnstileSecret && {
+			plugins: [
+				captcha({
+					provider: "cloudflare-turnstile",
+					secretKey: config.turnstileSecret,
+					endpoints: ["/sign-in/email", "/sign-up/email"],
+				}),
+			],
+		}),
 		databaseHooks: {
 			user: {
 				create: {

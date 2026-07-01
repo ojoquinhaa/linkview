@@ -9,6 +9,7 @@ import {
 } from "@linkview/shared";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { verifyTurnstile } from "./turnstile";
 
 export interface RegisterResult {
   ok: boolean;
@@ -34,6 +35,7 @@ function clientIp(h: Headers): string | null {
  */
 export async function registerAccount(
   input: RegisterInput,
+  captchaToken?: string,
 ): Promise<RegisterResult> {
   const parsed = registerSchema.safeParse(input);
   if (!parsed.success) {
@@ -47,6 +49,17 @@ export async function registerAccount(
   const h = await headers();
   const ip = clientIp(h);
   const userAgent = h.get("user-agent");
+
+  // Bot protection. This server action signs up through `auth.api.signUpEmail`,
+  // which bypasses Better Auth's HTTP captcha middleware, so verify the
+  // Turnstile token here. No-op when Turnstile isn't configured (local dev).
+  if (!(await verifyTurnstile(captchaToken, ip))) {
+    return {
+      ok: false,
+      error:
+        "Verificação anti-robô falhou. Recarregue a página e tente de novo.",
+    };
+  }
 
   // Create the auth account first; Better Auth provisions the default
   // workspace via its create hook and (in production) sends the verification

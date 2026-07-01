@@ -206,22 +206,24 @@ export async function POST(request: Request) {
 
       // Defense in depth: confirm the amount paid matches the plan's price for
       // the billing cycle before granting access. A forged or tampered event
-      // (or a wrong-priced charge) that underpays must not unlock Pro. We only
-      // gate on a present value and a known plan; anything else proceeds.
-      const amountCents = Math.round((payload.payment?.value ?? 0) * 100);
+      // (or a wrong-priced charge) that underpays must not unlock Pro. When the
+      // plan price is known we require a `value` that covers it — a confirmed
+      // event with no `value` is treated as untrusted and refused, not a free
+      // pass (SECURITY-AUDIT F4). An unknown plan (no expected price) proceeds.
+      const value = payload.payment?.value;
+      const amountCents = Math.round((value ?? 0) * 100);
       const expectedCents = plan
         ? getCyclePriceCents(plan.key as PlanKey, sub.billingCycle)
         : null;
       if (
         expectedCents != null &&
-        payload.payment?.value != null &&
-        amountCents < expectedCents
+        (value == null || amountCents < expectedCents)
       ) {
         console.error("billing.amount_mismatch", {
           eventId,
           planKey: plan?.key,
           cycle: sub.billingCycle,
-          amountCents,
+          amountCents: value == null ? null : amountCents,
           expectedCents,
         });
         await db

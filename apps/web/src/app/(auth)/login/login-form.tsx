@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, Suspense, useState } from "react";
+import { Turnstile, turnstileEnabled } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { signIn } from "@/lib/auth-client";
@@ -14,25 +15,69 @@ export function LoginForm() {
   );
 }
 
+const DEFAULT_REDIRECT = "/dashboard/links";
+
+/**
+ * Only allow same-origin internal paths after login. A path must start with a
+ * single "/" (not "//" or "/\", which browsers treat as protocol-relative ->
+ * external) and carry no scheme. Anything else — `https://evil.com`,
+ * `//evil.com` — falls back to the dashboard. Blocks the open-redirect
+ * (SECURITY-AUDIT F3).
+ */
+function safeRedirect(raw: string | null): string {
+  if (!raw || raw[0] !== "/" || raw[1] === "/" || raw[1] === "\\") {
+    return DEFAULT_REDIRECT;
+  }
+  return raw;
+}
+
 function LoginFormInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const redirectTo = params.get("redirect") || "/dashboard/links";
+  const redirectTo = safeRedirect(params.get("redirect"));
   const justReset = params.get("reset") === "1";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  // Bumped to force a fresh widget after a failed attempt (tokens are single-use).
+  const [captchaKey, setCaptchaKey] = useState(0);
+
+  function resetCaptcha() {
+    setCaptchaToken(null);
+    setCaptchaKey((k) => k + 1);
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (turnstileEnabled && !captchaToken) {
+      setError("Confirme que você não é um robô.");
+      return;
+    }
     setLoading(true);
-    const { error } = await signIn.email({ email, password });
+    const { error } = await signIn.email(
+      { email, password },
+      captchaToken
+        ? { headers: { "x-captcha-response": captchaToken } }
+        : undefined,
+    );
     if (error) {
+      const code = error.code ?? "";
+      // Captcha rejected — the token is single-use, so force a fresh widget.
+      // Checked before the 403 branch below: a failed Turnstile check also
+      // returns 403, which would otherwise be misread as "email not verified".
+      if (code === "VERIFICATION_FAILED" || code === "MISSING_RESPONSE") {
+        setError("Verificação anti-robô falhou. Tente novamente.");
+        resetCaptcha();
+        setLoading(false);
+        return;
+      }
       // Email not yet verified — route to the confirmation notice instead.
       if (
+        code === "EMAIL_NOT_VERIFIED" ||
         error.status === 403 ||
         error.message?.toLowerCase().includes("verif")
       ) {
@@ -44,6 +89,7 @@ function LoginFormInner() {
           ? "E-mail ou senha incorretos."
           : "Não foi possível entrar. Tente de novo.",
       );
+      resetCaptcha();
       setLoading(false);
       return;
     }
@@ -112,6 +158,17 @@ function LoginFormInner() {
             />
           )}
         </Field>
+
+        {turnstileEnabled && (
+          <div className="mt-1">
+            <Turnstile
+              key={captchaKey}
+              onVerify={setCaptchaToken}
+              onExpire={() => setCaptchaToken(null)}
+              onError={() => setCaptchaToken(null)}
+            />
+          </div>
+        )}
 
         <Button
           type="submit"

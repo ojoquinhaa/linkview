@@ -12,6 +12,7 @@ import {
 } from "@linkview/db";
 import { desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { lockWorkspaceLinks, unlockWorkspaceLinks } from "@/lib/kv";
 import { logAudit } from "@/server/audit";
 import {
   listWorkspacePayments,
@@ -26,7 +27,13 @@ export interface ActionResult {
 
 const PLAN_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Suspend or reactivate a user account. Suspending also revokes its sessions. */
+/**
+ * Suspend or reactivate a user account. Suspending revokes its sessions, starts
+ * the retention clock (`deletedAt`), and darks the owned workspaces' links;
+ * a suspended owner's dashboard becomes read-only (enforced in the layout and
+ * `workspaceCanWrite`) until reactivated or purged. Reactivating clears the
+ * clock and brings the links back online. (SECURITY-AUDIT F1.)
+ */
 export async function setUserStatusAction(
   userId: string,
   status: "active" | "suspended",
@@ -34,9 +41,22 @@ export async function setUserStatusAction(
   const admin = await requireAdmin();
   const db = getDb();
   try {
-    await db.update(user).set({ status }).where(eq(user.id, userId));
+    await db
+      .update(user)
+      .set({ status, deletedAt: status === "suspended" ? new Date() : null })
+      .where(eq(user.id, userId));
+
+    const owned = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.ownerId, userId));
+
     if (status === "suspended") {
       await db.delete(sessionTable).where(eq(sessionTable.userId, userId));
+      for (const ws of owned) await lockWorkspaceLinks(ws.id);
+    } else {
+      // Reactivated: bring the workspaces' links back online.
+      for (const ws of owned) await unlockWorkspaceLinks(ws.id);
     }
     await logAudit({
       workspaceId: null as unknown as string,

@@ -7,7 +7,7 @@ import {
   sendResetPasswordEmail,
   sendVerificationEmail,
 } from "./email";
-import { authEnv, redisConfigured, redisUrl } from "./env";
+import { authEnv, redisConfigured, redisUrl, turnstileSecret } from "./env";
 
 // Shared store for Better Auth's rate-limit counters. Lazily connect a single
 // Redis client (module scope survives within a warm instance). Falls back to
@@ -56,6 +56,7 @@ function getAuth(): Auth {
     trustedOrigins: [env.baseURL],
     requireEmailVerification: withEmail,
     secondaryStorage,
+    turnstileSecret: turnstileSecret(),
     sendResetPassword: withEmail
       ? async ({ user, token }) => {
           // Drive the reset through our own page rather than Better Auth's

@@ -18,6 +18,7 @@ import {
   scorePassword,
 } from "@/components/auth/password-strength";
 import { Stepper } from "@/components/auth/stepper";
+import { Turnstile, turnstileEnabled } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Input } from "@/components/ui/field";
@@ -61,6 +62,11 @@ export function RegisterForm() {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
   const [marketingOptIn, setMarketingOptIn] = useState(false);
+
+  // Turnstile (shown on the final step). Token is single-use, so bump the key
+  // to remount a fresh widget after a failed submit.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
 
   function clearError(key: string) {
     setErrors((prev) => {
@@ -153,29 +159,39 @@ export function RegisterForm() {
       });
       return;
     }
+    if (turnstileEnabled && !captchaToken) {
+      setSubmitError("Confirme que você não é um robô.");
+      return;
+    }
     setLoading(true);
-    const result = await registerAccount({
-      name: name.trim(),
-      email: email.trim(),
-      password,
-      personType,
-      document,
-      phone,
-      zip,
-      street: street.trim(),
-      number: number.trim(),
-      complement: complement.trim(),
-      district: district.trim(),
-      city: city.trim(),
-      state: uf,
-      acceptTerms: true,
-      acceptPrivacy: true,
-      marketingOptIn,
-    });
+    const result = await registerAccount(
+      {
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        personType,
+        document,
+        phone,
+        zip,
+        street: street.trim(),
+        number: number.trim(),
+        complement: complement.trim(),
+        district: district.trim(),
+        city: city.trim(),
+        state: uf,
+        acceptTerms: true,
+        acceptPrivacy: true,
+        marketingOptIn,
+      },
+      captchaToken ?? undefined,
+    );
 
     if (!result.ok) {
       setSubmitError(result.error ?? "Não foi possível criar a conta.");
       setLoading(false);
+      // Single-use token is now spent — reset so the user can resubmit.
+      setCaptchaToken(null);
+      setCaptchaKey((k) => k + 1);
       // Surface duplicate-email back on the account step.
       if (result.error?.toLowerCase().includes("e-mail")) setStep(0);
       return;
@@ -561,6 +577,17 @@ export function RegisterForm() {
               <p className="text-[0.8rem] text-danger">
                 {errors.acceptTerms ?? errors.acceptPrivacy}
               </p>
+            )}
+
+            {turnstileEnabled && (
+              <div className="mt-1">
+                <Turnstile
+                  key={captchaKey}
+                  onVerify={setCaptchaToken}
+                  onExpire={() => setCaptchaToken(null)}
+                  onError={() => setCaptchaToken(null)}
+                />
+              </div>
             )}
 
             <div className="mt-2 flex gap-3">

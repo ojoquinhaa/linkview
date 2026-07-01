@@ -13,9 +13,11 @@ import {
   type ProfileInput,
   profileSchema,
 } from "@linkview/shared";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
+import { lockWorkspaceLinks } from "@/lib/kv";
+import { accountIsActive } from "./account-status";
 import { logAudit } from "./audit";
 import { cancelWorkspaceSubscription } from "./billing/subscription";
 import { requireSession } from "./session";
@@ -56,7 +58,9 @@ export async function getMarketingConsent(userId: string): Promise<boolean> {
   const [m] = await db
     .select({ accepted: userConsents.accepted })
     .from(userConsents)
-    .where(eq(userConsents.type, "marketing"))
+    .where(
+      and(eq(userConsents.userId, userId), eq(userConsents.type, "marketing")),
+    )
     .orderBy(desc(userConsents.createdAt))
     .limit(1);
   return m?.accepted ?? row?.accepted ?? false;
@@ -78,6 +82,9 @@ export async function updateProfileAction(
   input: ProfileInput,
 ): Promise<ActionResult> {
   const session = await requireSession();
+  if (!(await accountIsActive(session.user.id))) {
+    return { ok: false, error: "Conta inativa: edição bloqueada." };
+  }
   const parsed = profileSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -150,6 +157,9 @@ export async function renameWorkspaceAction(
   rawName: string,
 ): Promise<RenameWorkspaceResult> {
   const session = await requireSession();
+  if (!(await accountIsActive(session.user.id))) {
+    return { ok: false, error: "Conta inativa: edição bloqueada." };
+  }
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) return { ok: false, error: "Workspace não encontrado." };
   if (workspace.role !== "owner") {
@@ -183,9 +193,15 @@ export async function renameWorkspaceAction(
 
 /**
  * Close the account (LGPD right to erasure, art. 18 VI). Marks the user
- * `deleted`, soft-deletes the workspaces they own, and revokes every session so
- * all devices are signed out. The client follows up with a sign-out + redirect.
- * Irreversible from the product UI; data is purged by the retention job.
+ * `deleted`, starts the retention clock (`deletedAt`), darks the owned
+ * workspaces' links, and revokes every session so all devices are signed out.
+ *
+ * The workspaces are NOT soft-deleted yet: the account keeps reaching the
+ * dashboard read-only for ACCOUNT_CLOSURE_RETENTION_DAYS (the layout shows a
+ * countdown; `workspaceCanWrite` blocks writes because the owner is no longer
+ * `active`), after which the maintenance job soft-deletes them. The client
+ * follows up with a sign-out + redirect; logging back in lands on the read-only
+ * dashboard. Irreversible from the product UI.
  */
 export async function closeAccountAction(): Promise<ActionResult> {
   const session = await requireSession();
@@ -214,16 +230,16 @@ export async function closeAccountAction(): Promise<ActionResult> {
         .update(user)
         .set({ status: "deleted", deletedAt: now })
         .where(eq(user.id, userId)),
-      db
-        .update(workspaces)
-        .set({ deletedAt: now })
-        .where(eq(workspaces.ownerId, userId)),
       db.delete(sessionTable).where(eq(sessionTable.userId, userId)),
     ]);
   } catch (err) {
     console.error("account.close_failed", err);
     return { ok: false, error: "Não foi possível encerrar. Tente de novo." };
   }
+
+  // Take the closed account's links offline immediately (the data lingers
+  // read-only until the retention purge). Best-effort — never fail the closure.
+  for (const ws of owned) await lockWorkspaceLinks(ws.id);
 
   return { ok: true };
 }

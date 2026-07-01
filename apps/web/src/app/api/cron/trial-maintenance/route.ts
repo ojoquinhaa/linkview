@@ -2,9 +2,11 @@ import {
   getDb,
   subscriptions,
   trialRedemptions,
+  user,
   workspaces,
 } from "@linkview/db";
 import {
+  ACCOUNT_CLOSURE_RETENTION_DAYS,
   CANCEL_RETENTION_DAYS,
   PAST_DUE_GRACE_DAYS,
   TRIAL_RETENTION_DAYS,
@@ -24,6 +26,8 @@ import { lockWorkspaceLinks } from "@/lib/kv";
  *     flip to `expired` and drop the workspace to free.
  *  1c. Retention purge for paid subscriptions ended (canceled/expired/unpaid)
  *     longer than CANCEL_RETENTION_DAYS — soft-delete the workspace.
+ *  1d. Retention purge for suspended/closed accounts past
+ *     ACCOUNT_CLOSURE_RETENTION_DAYS — soft-delete the workspaces they own.
  *  2. Retention purge — for trials that ended more than TRIAL_RETENTION_DAYS
  *     ago without ever converting to a paid plan, soft-delete the workspace
  *     (`deletedAt`) and stamp the redemption `purgedAt`. The rows stay in the
@@ -159,6 +163,34 @@ async function runMaintenance() {
     if (done.length > 0) purgedPaid += 1;
   }
 
+  // Pass 1d — retention purge for suspended/closed accounts (SECURITY-AUDIT F1).
+  // An account suspended by an admin or closed by its owner (LGPD erasure) keeps
+  // a read-only dashboard until ACCOUNT_CLOSURE_RETENTION_DAYS after `deletedAt`;
+  // past that, soft-delete every workspace the user owns (the rows stay for legal
+  // retention). The links were already darked when the status changed.
+  const closureCutoff = new Date(
+    now.getTime() - ACCOUNT_CLOSURE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  );
+  const closedAccounts = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        inArray(user.status, ["suspended", "deleted"]),
+        lt(user.deletedAt, closureCutoff),
+      ),
+    );
+
+  let purgedAccounts = 0;
+  for (const row of closedAccounts) {
+    const done = await db
+      .update(workspaces)
+      .set({ deletedAt: now })
+      .where(and(eq(workspaces.ownerId, row.id), isNull(workspaces.deletedAt)))
+      .returning({ id: workspaces.id });
+    if (done.length > 0) purgedAccounts += 1;
+  }
+
   // Pass 2 — soft-delete non-converting workspaces past the retention window.
   const cutoff = new Date(
     now.getTime() - TRIAL_RETENTION_DAYS * 24 * 60 * 60 * 1000,
@@ -200,6 +232,7 @@ async function runMaintenance() {
     overdue: overdue.length,
     pendingLapsed: pendingLapsed.length,
     purgedPaid,
+    purgedAccounts,
     purged,
   };
 }

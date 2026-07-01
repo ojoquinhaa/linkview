@@ -52,6 +52,16 @@ export function r2Configured(): boolean {
   ].every((name) => Boolean(process.env[name]));
 }
 
+/** Cloudflare Turnstile secret key (server-side siteverify). */
+export function turnstileSecret(): string | undefined {
+  return process.env.TURNSTILE_SECRET_KEY?.trim() || undefined;
+}
+
+/** True when Turnstile is configured, so captcha verification is enforced. */
+export function turnstileConfigured(): boolean {
+  return Boolean(turnstileSecret());
+}
+
 /** Token the redirect Worker must present to POST clicks. */
 export function clickIngestToken(): string | undefined {
   return process.env.CLICK_INGEST_TOKEN;
