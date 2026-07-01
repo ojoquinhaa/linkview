@@ -273,20 +273,28 @@ export async function startPixSubscription(
   const [existing] = await db
     .select({
       id: subscriptions.id,
+      status: subscriptions.status,
       providerSubscriptionId: subscriptions.providerSubscriptionId,
     })
     .from(subscriptions)
     .where(eq(subscriptions.workspaceId, workspaceId))
     .limit(1);
   if (existing) {
+    // A re-checkout on an already-active sub (a cycle switch) keeps it `active`
+    // on its current cycle + period; only the new charge is outstanding, tracked
+    // via `pendingBillingCycle` and folded in when it clears. A new/trialing/
+    // lapsed sub takes the `pending` first-payment path with the cycle applied now.
+    const switching = existing.status === "active";
     await db
       .update(subscriptions)
       .set({
         planId: row.id,
         provider: "asaas",
         providerSubscriptionId: sub.id,
-        status: "pending",
-        billingCycle: cycle,
+        status: switching ? "active" : "pending",
+        ...(switching
+          ? { pendingBillingCycle: cycle }
+          : { billingCycle: cycle, pendingBillingCycle: null }),
         // Pix is paid manually each cycle: no card on file, no autopay.
         autopay: false,
         cardToken: null,
@@ -425,20 +433,27 @@ export async function startCardSubscription(
   const [existing] = await db
     .select({
       id: subscriptions.id,
+      status: subscriptions.status,
       providerSubscriptionId: subscriptions.providerSubscriptionId,
     })
     .from(subscriptions)
     .where(eq(subscriptions.workspaceId, workspaceId))
     .limit(1);
   if (existing) {
+    // Switch on an already-active sub: keep it `active` on its current cycle +
+    // period, record the new cycle as pending until the charge clears. Otherwise
+    // take the `pending` first-payment path with the new cycle applied now.
+    const switching = existing.status === "active";
     await db
       .update(subscriptions)
       .set({
         planId: row.id,
         provider: "asaas",
         providerSubscriptionId: sub.id,
-        status: "pending",
-        billingCycle: cycle,
+        status: switching ? "active" : "pending",
+        ...(switching
+          ? { pendingBillingCycle: cycle }
+          : { billingCycle: cycle, pendingBillingCycle: null }),
         cancelAtPeriodEnd: false,
         canceledAt: null,
         ...cardFields,
@@ -488,6 +503,12 @@ export async function startCardSubscription(
     const charge = payments[0];
     if (!charge || !CARD_SETTLING_STATUSES.has(charge.status)) {
       await asaas.cancelSubscription(sub.id).catch(() => {});
+      // A refused switch left the sub `active` on its old cycle: drop the pending
+      // target so the plan page doesn't show a stuck "processing" notice.
+      await db
+        .update(subscriptions)
+        .set({ pendingBillingCycle: null })
+        .where(eq(subscriptions.workspaceId, workspaceId));
       throw new Error(
         "Asaas 402: Pagamento não autorizado. Confira os dados ou use outro cartão.",
       );
@@ -685,6 +706,8 @@ export interface WorkspaceSubscription {
   status: string;
   planKey: string;
   billingCycle: BillingCycle;
+  /** Target cycle of an in-flight switch (charge not yet cleared), else null. */
+  pendingBillingCycle: BillingCycle | null;
   providerSubscriptionId: string | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
@@ -705,6 +728,7 @@ export async function getWorkspaceSubscription(
       status: subscriptions.status,
       planKey: plans.key,
       billingCycle: subscriptions.billingCycle,
+      pendingBillingCycle: subscriptions.pendingBillingCycle,
       providerSubscriptionId: subscriptions.providerSubscriptionId,
       currentPeriodEnd: subscriptions.currentPeriodEnd,
       cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
@@ -754,11 +778,16 @@ export function resolveSubscriptionAccess(
 }
 
 /**
- * Poll Asaas for a pending subscription's payments and activate locally if one
- * already cleared. Mirrors the webhook's activation so the "Já paguei" path
- * unblocks the user even when the webhook is late, blocked, or not configured
- * (common in sandbox). Best-effort and idempotent: a no-op unless there's a
- * pending subscription with a paid charge. Returns true when active afterward.
+ * Poll Asaas for the subscription's latest charge and settle it locally if it
+ * cleared. Mirrors the webhook's activation so the "Já paguei" path unblocks the
+ * user even when the webhook is late, blocked, or not configured (common in
+ * sandbox). Two cases settle here:
+ *  - a `pending` first payment (new / lapsed subscriber), and
+ *  - an in-flight cycle switch (`pendingBillingCycle` set): the sub stays
+ *    `active` on its old cycle until the new charge clears, then flips.
+ * Best-effort and idempotent: a no-op unless there's a charge to fold in.
+ * Returns true when nothing is left outstanding (the switch/first charge is
+ * settled or there was none to settle).
  */
 export async function reconcilePendingSubscription(
   workspaceId: string,
@@ -771,6 +800,7 @@ export async function reconcilePendingSubscription(
       providerSubscriptionId: subscriptions.providerSubscriptionId,
       planId: subscriptions.planId,
       billingCycle: subscriptions.billingCycle,
+      pendingBillingCycle: subscriptions.pendingBillingCycle,
       currentPeriodStart: subscriptions.currentPeriodStart,
       currentPeriodEnd: subscriptions.currentPeriodEnd,
     })
@@ -779,8 +809,18 @@ export async function reconcilePendingSubscription(
     .limit(1);
 
   if (!row) return false;
-  if (row.status === "active") return true;
-  if (row.status !== "pending" || !row.providerSubscriptionId) return false;
+  const switching = row.pendingBillingCycle != null;
+  // Nothing outstanding to settle: an active sub with no pending switch is done;
+  // anything not pending/switching (locked, canceled, …) has no charge to fold.
+  if (!switching) {
+    if (row.status === "active") return true;
+    if (row.status !== "pending") return false;
+  }
+  if (!row.providerSubscriptionId) return row.status === "active";
+
+  // The cycle the clearing charge pays for: the switch target if one is in
+  // flight, otherwise the sub's current cycle.
+  const cycle = row.pendingBillingCycle ?? row.billingCycle;
 
   const payments = await asaas.getSubscriptionPayments(
     row.providerSubscriptionId,
@@ -795,20 +835,17 @@ export async function reconcilePendingSubscription(
     .limit(1);
 
   // Defense in depth (mirrors the webhook): only activate when the cleared charge
-  // covers the plan's price for the billing cycle. The amount is set by us when
-  // creating the Asaas subscription, so a shortfall means a stale/divergent charge
+  // covers the plan's price for the cycle. The amount is set by us when creating
+  // the Asaas subscription, so a shortfall means a stale/divergent charge
   // surfaced in the payments list — never promote the plan off of it.
   if (plan && paid.value != null) {
     const amountCents = Math.round(paid.value * 100);
-    const expectedCents = getCyclePriceCents(
-      plan.key as PlanKey,
-      row.billingCycle,
-    );
+    const expectedCents = getCyclePriceCents(plan.key as PlanKey, cycle);
     if (amountCents < expectedCents) {
       console.error("billing.reconcile_amount_mismatch", {
         workspaceId,
         planKey: plan.key,
-        cycle: row.billingCycle,
+        cycle,
         amountCents,
         expectedCents,
       });
@@ -821,7 +858,7 @@ export async function reconcilePendingSubscription(
   // Credit any unused time from the prior period (cycle switch / early renewal).
   const currentPeriodEnd = activatedPeriodEnd({
     paidAt,
-    cycle: row.billingCycle,
+    cycle,
     prevStart: row.currentPeriodStart,
     prevEnd: row.currentPeriodEnd,
   });
@@ -830,6 +867,8 @@ export async function reconcilePendingSubscription(
     .update(subscriptions)
     .set({
       status: "active",
+      billingCycle: cycle,
+      pendingBillingCycle: null,
       currentPeriodStart: paidAt,
       currentPeriodEnd,
       cancelAtPeriodEnd: false,

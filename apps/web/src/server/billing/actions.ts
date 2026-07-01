@@ -434,6 +434,10 @@ export async function checkActivationAction(): Promise<ActivationResult> {
 
   const sub = await getWorkspaceSubscription(workspace.id);
   if (!sub) return { status: "none" };
+  // A cycle switch keeps the sub `active` but leaves an outstanding charge
+  // (pendingBillingCycle). Report "pending" until reconcile folds it in, so the
+  // Pix poll keeps waiting instead of declaring success before payment.
+  if (sub.pendingBillingCycle) return { status: "pending" };
   if (sub.status === "active" || sub.status === "trialing") {
     return { status: "active" };
   }

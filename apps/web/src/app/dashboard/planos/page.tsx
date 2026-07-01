@@ -7,6 +7,7 @@ import {
 import { redirect } from "next/navigation";
 import {
   getWorkspaceSubscription,
+  reconcilePendingSubscription,
   resolveSubscriptionAccess,
 } from "@/server/billing/subscription";
 import { getTrialStatus } from "@/server/billing/trial";
@@ -53,11 +54,27 @@ export default async function PlanosPage() {
   const workspace = await getActiveWorkspace(session.user.id);
   if (!workspace) redirect("/login");
 
-  const sub = await getWorkspaceSubscription(workspace.id);
+  let sub = await getWorkspaceSubscription(workspace.id);
+  // Self-heal on visit: a first payment or an in-flight cycle switch may have
+  // cleared at Asaas without the webhook landing. Fold it in now so the page
+  // never shows a stale price/date for a charge that's already paid.
+  if (
+    sub &&
+    (sub.pendingBillingCycle != null ||
+      (sub.status !== "active" && sub.status !== "trialing"))
+  ) {
+    await reconcilePendingSubscription(workspace.id).catch(() => {});
+    sub = await getWorkspaceSubscription(workspace.id);
+  }
   // This page renders the *active* plan UI. A locked (lapsed-billing) workspace
   // can still reach the dashboard read-only, but reactivation lives on /assinar
   // — send it there rather than rendering a misleading "active" panel.
   if (!sub || resolveSubscriptionAccess(sub) !== "full") redirect("/assinar");
+
+  // A cycle switch keeps the sub active on its current cycle + date while the
+  // new charge is outstanding — show a "processing" notice instead of the switch
+  // CTA, and never render the new price/date until it's paid.
+  const switchPending = sub.pendingBillingCycle != null;
 
   const onTrial = sub.status === "trialing";
   const trial = onTrial ? await getTrialStatus(workspace.id) : null;
@@ -194,6 +211,8 @@ export default async function PlanosPage() {
             trialDays={TRIAL_DURATION_DAYS}
             pricing={pricing}
             currentCycle={annual ? "yearly" : "monthly"}
+            switchPending={switchPending}
+            switchTargetCycle={sub.pendingBillingCycle}
             nextChargeLabel={renewsAt ? fmtDate(renewsAt) : null}
             cardLast4={sub.cardLast4}
             cardBrand={sub.cardBrand}

@@ -115,6 +115,8 @@ async function resolveSubscription(
         planId: subscriptions.planId,
         status: subscriptions.status,
         billingCycle: subscriptions.billingCycle,
+        pendingBillingCycle: subscriptions.pendingBillingCycle,
+        providerSubscriptionId: subscriptions.providerSubscriptionId,
         cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
         currentPeriodStart: subscriptions.currentPeriodStart,
         currentPeriodEnd: subscriptions.currentPeriodEnd,
@@ -132,6 +134,8 @@ async function resolveSubscription(
         planId: subscriptions.planId,
         status: subscriptions.status,
         billingCycle: subscriptions.billingCycle,
+        pendingBillingCycle: subscriptions.pendingBillingCycle,
+        providerSubscriptionId: subscriptions.providerSubscriptionId,
         cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
         currentPeriodStart: subscriptions.currentPeriodStart,
         currentPeriodEnd: subscriptions.currentPeriodEnd,
@@ -210,10 +214,13 @@ export async function POST(request: Request) {
       // plan price is known we require a `value` that covers it — a confirmed
       // event with no `value` is treated as untrusted and refused, not a free
       // pass (SECURITY-AUDIT F4). An unknown plan (no expected price) proceeds.
+      // The cycle this charge pays for: the switch target if one is in flight,
+      // otherwise the sub's current cycle.
+      const cycle = sub.pendingBillingCycle ?? sub.billingCycle;
       const value = payload.payment?.value;
       const amountCents = Math.round((value ?? 0) * 100);
       const expectedCents = plan
-        ? getCyclePriceCents(plan.key as PlanKey, sub.billingCycle)
+        ? getCyclePriceCents(plan.key as PlanKey, cycle)
         : null;
       if (
         expectedCents != null &&
@@ -222,7 +229,7 @@ export async function POST(request: Request) {
         console.error("billing.amount_mismatch", {
           eventId,
           planKey: plan?.key,
-          cycle: sub.billingCycle,
+          cycle,
           amountCents: value == null ? null : amountCents,
           expectedCents,
         });
@@ -240,7 +247,7 @@ export async function POST(request: Request) {
       // renewal) onto the new period, exactly once.
       const renewsAt = activatedPeriodEnd({
         paidAt,
-        cycle: sub.billingCycle,
+        cycle,
         prevStart: sub.currentPeriodStart,
         prevEnd: sub.currentPeriodEnd,
       });
@@ -248,6 +255,9 @@ export async function POST(request: Request) {
         .update(subscriptions)
         .set({
           status: "active",
+          // Fold an in-flight switch into the live cycle now that it's paid.
+          billingCycle: cycle,
+          pendingBillingCycle: null,
           currentPeriodStart: paidAt,
           currentPeriodEnd: renewsAt,
           cancelAtPeriodEnd: false,
@@ -382,7 +392,17 @@ export async function POST(request: Request) {
         sub.cancelAtPeriodEnd &&
         sub.currentPeriodEnd != null &&
         sub.currentPeriodEnd > new Date();
-      if (!inGracePeriod) {
+      // A cycle switch / re-checkout cancels the *old* Asaas subscription to
+      // stop its charges; that delete fires for an id the row no longer points
+      // to. It must never demote the workspace, which now runs on the new
+      // subscription — ignore the event for a superseded subscription id.
+      const eventSubId =
+        payload.subscription?.id ?? payload.payment?.subscription;
+      const superseded =
+        eventSubId != null &&
+        sub.providerSubscriptionId != null &&
+        eventSubId !== sub.providerSubscriptionId;
+      if (!superseded && !inGracePeriod) {
         await db
           .update(subscriptions)
           .set({ status: "canceled", canceledAt: new Date() })

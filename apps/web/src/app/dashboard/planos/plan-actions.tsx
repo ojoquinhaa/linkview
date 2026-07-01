@@ -1,5 +1,6 @@
 "use client";
 import type { BillingCycle } from "@linkview/shared";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
@@ -40,6 +41,8 @@ export function PlanActions({
   trialDays,
   pricing,
   currentCycle,
+  switchPending,
+  switchTargetCycle,
   nextChargeLabel,
   cardLast4,
   cardBrand,
@@ -50,6 +53,10 @@ export function PlanActions({
   trialDays: number;
   pricing: BillingCyclePricing;
   currentCycle: BillingCycle;
+  /** A cycle switch is paid-pending: show a processing notice, hide the switch. */
+  switchPending: boolean;
+  /** Target cycle of the in-flight switch, for the notice copy. */
+  switchTargetCycle: BillingCycle | null;
   nextChargeLabel: string | null;
   cardLast4: string | null;
   cardBrand: string | null;
@@ -80,12 +87,20 @@ export function PlanActions({
         cardLast4={cardLast4}
         cardBrand={cardBrand}
       />
-      <CycleSwitch
-        currentCycle={currentCycle}
-        pricing={pricing}
-        autopay={autopay}
-        nextChargeLabel={nextChargeLabel}
-      />
+      {switchPending ? (
+        <SwitchProcessing
+          targetCycle={switchTargetCycle}
+          pricing={pricing}
+          autopay={autopay}
+        />
+      ) : (
+        <CycleSwitch
+          currentCycle={currentCycle}
+          pricing={pricing}
+          autopay={autopay}
+          nextChargeLabel={nextChargeLabel}
+        />
+      )}
       <CancelRow />
     </>
   );
@@ -319,6 +334,63 @@ function PixIcon() {
     >
       <path d="M12 2.6a2 2 0 0 1 1.43.6l6.77 6.77a2 2 0 0 1 0 2.83l-6.77 6.77a2 2 0 0 1-2.86 0L3.8 12.8a2 2 0 0 1 0-2.83L10.57 3.2A2 2 0 0 1 12 2.6Zm0 2.23L5.23 11.6a.57.57 0 0 0 0 .8L12 19.17l6.77-6.77a.57.57 0 0 0 0-.8Z" />
     </svg>
+  );
+}
+
+/**
+ * Notice shown while a cycle switch is *paid-pending*: the subscription stays on
+ * its current plan (price + renewal date unchanged) until the new charge clears,
+ * then flips. Replaces the switch CTA so the user can't start a second switch,
+ * and never shows the new price/date before it's paid. For Pix the open invoice
+ * is payable from the global billing banner / payments page; card autopay just
+ * captures on its own.
+ */
+function SwitchProcessing({
+  targetCycle,
+  pricing,
+  autopay,
+}: {
+  targetCycle: BillingCycle | null;
+  pricing: BillingCyclePricing;
+  autopay: boolean;
+}) {
+  const annual = targetCycle === "yearly";
+  const label = annual ? "anual" : "mensal";
+  const amount = annual ? brl(pricing.yearlyCents) : brl(pricing.monthlyCents);
+
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-6 shadow-[0_1px_2px_oklch(0.2_0.03_265/0.04)] sm:p-7">
+      <div className="flex min-w-0 items-start gap-3.5">
+        <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-weak text-accent">
+          <span
+            aria-hidden
+            className="inline-block size-4 animate-spin rounded-full border-[1.5px] border-current border-t-transparent"
+          />
+        </span>
+        <div className="min-w-0">
+          <h3 className="font-display text-[1.1rem] font-semibold tracking-[-0.01em] text-ink">
+            Mudança para o plano {label} em processamento
+          </h3>
+          <p className="mt-1.5 text-[0.88rem] text-muted">
+            Sua assinatura segue no plano atual até o pagamento de{" "}
+            <span className="font-medium text-ink">{amount}</span> ser
+            confirmado. Assim que cair, o plano passa a ser {label} e a próxima
+            cobrança é ajustada.
+            {autopay
+              ? " A cobrança é feita automaticamente no seu cartão."
+              : " Enviamos a fatura por e-mail e você paga por Pix."}
+          </p>
+          {!autopay && (
+            <Link
+              href="/dashboard/pagamentos"
+              className="mt-5 inline-flex h-10 select-none items-center justify-center gap-2 rounded-[var(--radius-input)] border border-line-strong bg-surface px-4 text-sm font-medium text-ink transition-colors hover:bg-paper-sunk"
+            >
+              Pagar fatura
+            </Link>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

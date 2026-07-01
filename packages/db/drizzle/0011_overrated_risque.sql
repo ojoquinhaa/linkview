@@ -1,0 +1,1 @@
+ALTER TABLE "subscriptions" ADD COLUMN "pending_billing_cycle" "billing_cycle";

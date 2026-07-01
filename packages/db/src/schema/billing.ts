@@ -60,6 +60,13 @@ export const subscriptions = pgTable(
     billingCycle: billingCycleEnum("billing_cycle")
       .notNull()
       .default("monthly"),
+    /** Target cycle of an in-flight cycle switch, while the subscription stays
+     * `active` on its current (old) cycle + period until the new charge clears.
+     * Null except between starting a switch checkout and that charge settling;
+     * on settlement the webhook/reconcile copies it into `billingCycle`, stamps
+     * the new period, and clears this back to null. Lets a switch never drop the
+     * subscription to `pending` or show the new price/date before it's paid. */
+    pendingBillingCycle: billingCycleEnum("pending_billing_cycle"),
     currentPeriodStart: timestamp("current_period_start", {
       withTimezone: true,
     }),
